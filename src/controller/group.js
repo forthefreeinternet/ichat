@@ -1,3 +1,6 @@
+
+import groupApi from './../api/modules/group'
+import global from './global'
 // const GROUP_USER = require('./../models/group').groupUser
 // const GROUP = require('./../models/group').group
 // const ACCOUNTBASE = require('./../models/accountpool')
@@ -5,6 +8,10 @@
 import store from './../store/index'
 import { RCode } from './../common/constant/rcode';
 import { service } from './../common/constant/service';
+
+import {joinRoom, selfId} from 'trystero'
+
+import localforage from 'localforage'
 
 const getMyGroup = (req, res) => { // 获取我的群聊
   let { userName } = req.query
@@ -208,6 +215,92 @@ const joinGroup = async(data) => {
   //   store.dispatch('joinGroup', { code: RCode.FAIL, msg: '你没资格进群'});
   // }
 }
+const getGroupMessage = async(roomId,message, userId) => {
+  console.log(message);  
+  groupApi.getGroupMessage(roomId,message, userId)
+}
+
+
+// 发送群消息
+
+const sendGroupMessage = async(data) => {
+  //const isUser = await this.userRepository.findOne({userId: data.userId});
+  if(true) {
+    // const userGroupMap = await this.groupUserRepository.findOne({userId: data.userId, groupId: data.groupId});
+    // if(!userGroupMap || !data.groupId) {
+    //   this.server.to(data.userId).emit('groupMessage',{code:RCode.FAIL, msg:'群消息发送错误', data: ''});
+    //   return;
+    // } 
+    if(data.messageType === 'image') {
+      const randomName = `${Date.now()}$${data.userId}$${data.width}$${data.height}`;
+      const stream = createWriteStream(join('public/static', randomName));
+      stream.write(data.content);
+      data.content = randomName;
+    }
+    data.time = new Date().valueOf(); // 使用服务端时间
+    //await this.groupMessageRepository.save(data);
+    console.log(global.user)
+    console.log(global.roomObjects)
+    global.roomObjects[data.groupId].sendMessage(data.content)
+    getGroupMessage(data.groupId, data.content, global.user.userId ) 
+    //this.server.to(data.groupId).emit('groupMessage', {code: RCode.OK, msg:'', data: data});
+  } 
+}
+
+const roomInit = async(roomIds) => {
+  let rooms = {}
+  for (const roomId of roomIds){
+
+      //Establish a webRtc room, and access it by appId and roomId
+      const config = {appId: 'ichat'}
+      const room = joinRoom(config, roomId)
+      console.log(room)
+      room.onPeerJoin(id => console.log(`${id} joined`))
+      
+      const [sendMessage, getMessage] = room.makeAction('message')
+      getMessage(function(message, id){
+        console.log('webRtc getMessage ' + message + ' from ' + id)
+        getGroupMessage(roomId, message, global.roomObjects[roomId].idsToUserIds[id] ) })
+      //const selfId = selfId
+      const idsToNames = {}
+      const idsToUserIds = {}
+      console.log(JSON.stringify(global.user))
+      idsToNames[selfId] = global.user.username 
+      idsToUserIds[selfId] =  global.user.userId
+      rooms[roomId] = {object:room,
+                  sendMessage: sendMessage,
+                  idsToNames : idsToNames,
+                  idsToUserIds : idsToUserIds
+                }
+
+
+      
+      const [sendName, getName] = room.makeAction('name')    
+      // tell other peers currently in the room our name
+      sendName(global.user.username + ':' + global.user.userId)    
+      // tell newcomers
+      room.onPeerJoin(id => sendName(global.user.username + ':' +  global.user.userId, id))    
+      // listen for peers naming themselves
+      getName(function(name, id) {
+        console.log('webRtc getName ' + name + ' from ' + id)
+        global.roomObjects[roomId].idsToNames[id] = name.split(':')[0]
+        global.roomObjects[roomId].idsToUserIds[id] = name.split(':')[1]})
+  }
+  global.roomObjects = rooms
+
+  try {
+      const value = await localforage.setItem('roomService', rooms);
+      // This code runs once the value has been loaded
+      // from the offline store.
+      console.log(value);
+  } catch (err) {
+      // This code runs if there were any errors.
+      console.log(err);
+  }
+  
+  return rooms
+}
+
 
 
 
@@ -219,5 +312,7 @@ export default {
   createGroup,
   getRecentGroup,
   getAllGroup,
-  joinGroup
+  joinGroup,
+  roomInit,
+  sendGroupMessage
 }

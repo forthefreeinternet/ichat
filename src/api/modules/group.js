@@ -1,5 +1,8 @@
-import request from '@/utils/request'
-import { API } from './../index'
+// import request from '@/utils/request'
+// import { API } from './../index'
+import group from './../../controller/group'
+import store from './../../store/index'
+import { RCode } from './../../common/constant/rcode';
 
 export default {
   /**
@@ -48,5 +51,21 @@ export default {
   },
   getGroupLastNews(data) {
     return request.post(`${API}/groupnews/lastnews`, data)
+  },
+
+  getGroupMessage(groupId, message,  userId){
+    store.dispatch('chat/groupMessage', {code: RCode.OK, msg:'', data: {
+      userId: userId,
+      groupId: groupId,
+      content: message,
+      width:undefined,
+      height: undefined,
+      messageType:'text',
+    }})
+  },
+
+  sendGroupMessage(data){
+    group.sendGroupMessage(data)
+    
   }
 }

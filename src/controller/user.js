@@ -13,7 +13,10 @@
 import { RCode } from './../common/constant/rcode';
 import { serviceMessage } from './../common/constant/service';
 import { serviceGroup } from './../common/constant/service'
+import global from './global'
 import store from './../store/index'
+
+
 import Web3 from 'web3'//'./../assets/js/web3.min'
 import utils from './../utils/common'
 //const Web3 = require('web3');
@@ -66,6 +69,7 @@ const login = (req) => {
   const nowTimestamp = Date.now()
   
   let localAccount = JSON.parse(localStorage.getItem(account));//the string typed in is the key mapped to a decrypted account,
+  
   var web3 = new Web3(new Web3.providers.WebsocketProvider("wss://rinkeby.infura.io/ws/v3/a898a2d231e647c7928dc457c6d441c8"));
   try{
   account = web3.eth.accounts.decrypt(localAccount.secPrivateKey, password);
@@ -100,6 +104,19 @@ const login = (req) => {
   const userId = doc._id
   const token = 0//createToken(userId)
   console.log(localAccount)
+  JSON.stringify(global.user)
+  global.user = {
+    username: localAccount.accountName,
+    userId : localAccount.accountAddress,       
+    password: password,
+    avatar: `api/avatar/avatar(${Math.round(Math.random()*19 +1)}).png`,
+    role: 'user',
+    tag: '',
+    //createTime: time,
+    //publicId: account2.address,
+  }//user,
+
+
   return {
     msg:'登录成功',
     data: {
@@ -260,7 +277,9 @@ const register = (req, res) => {
   let accountAddress = account.address;
   let secPrivateKey = web3.eth.accounts.encrypt(account.privateKey, password)
   //localStorage.setItem($('#js_input').val(), JSON.stringify(this.$web3.eth.accounts.encrypt(account.privateKey, $('#js_input_password').val())));
-  let info = {'accountName': accountName, 'accountAddress': accountAddress , 'secPrivateKey': secPrivateKey , 'contactList': {}, role : 'user' , publicId: account2.address}
+  let info = {'accountName': accountName, 'accountAddress': accountAddress , 'secPrivateKey': secPrivateKey , 
+  'contactList': {}, role : 'user' , publicId: account2.address , group: [{groupId: '0'}]}
+  global.user = info
   localStorage.setItem(accountName , JSON.stringify(info))
   return {
     msg:'注册成功',
@@ -348,6 +367,11 @@ const register = (req, res) => {
 //     }
 //   })
 }
+
+
+
+
+
 
 // 获取用户信息
 const getUserInfo = (req, res) => {

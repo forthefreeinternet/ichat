@@ -20,7 +20,7 @@ import {
 } from './mutation-types';
 import { DEFAULT_GROUP } from '@/const/index';
 
-const userController = require('./../../../controller/user').default
+const initController = require('./../../../controller/init').default
 const groupController = require('./../../../controller/group').default
 import { serviceGroup } from './../../../common/constant/service';
 import { RCode } from './../../../common/constant/rcode';
@@ -131,9 +131,11 @@ const actions: ActionTree<ChatState, RootState> = {
             groupName: serviceGroup.groupName,
           });
           
-  userController.serviceInit();
-
+  initController.serviceInit();
+  
     let user = rootState.app.user;  
+    initController.getAllData(user);
+
     console.log('rootState', rootState);  
     let socket: SocketIOClient.Socket = io.connect(`/?userId=${user.userId}`, { reconnection: true });
 

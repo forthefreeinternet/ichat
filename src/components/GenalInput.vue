@@ -41,6 +41,9 @@ import { namespace } from 'vuex-class';
 const chatModule = namespace('chat');
 const appModule = namespace('app');
 
+// @ts-ignore
+import groupApi from './../api/modules/group'
+
 @Component({
   components: {
     GenalEmoji,
@@ -133,14 +136,23 @@ export default class GenalInput extends Vue {
    */
   sendMessage(data: SendMessage) {
     if (data.type === 'group') {
-      this.socket.emit('groupMessage', {
+      console.log(this.activeRoom.groupId)
+      groupApi.sendGroupMessage({
         userId: this.user.userId,
         groupId: this.activeRoom.groupId,
         content: data.message,
         width: data.width,
         height: data.height,
         messageType: data.messageType,
-      });
+      })
+      // this.socket.emit('groupMessage', {
+      //   userId: this.user.userId,
+      //   groupId: this.activeRoom.groupId,
+      //   content: data.message,
+      //   width: data.width,
+      //   height: data.height,
+      //   messageType: data.messageType,
+      // });
     } else {
       this.socket.emit('friendMessage', {
         userId: this.user.userId,
