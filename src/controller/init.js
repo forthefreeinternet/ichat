@@ -87,7 +87,9 @@ const getAllData = (  user ) => {
 //     }});
  
 }
-
+const userInit = () => {
+  
+}
 const serviceInit = () => {
     for (let i = 0; i < serviceMessage.length; i++)
     {
