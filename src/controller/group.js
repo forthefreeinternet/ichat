@@ -247,6 +247,10 @@ const sendGroupMessage = async(data) => {
   } 
 }
 
+const updateGroupMessage = async() => {
+
+}
+
 const roomInit = async(roomIds) => {
   let rooms = {}
   for (const roomId of roomIds){
@@ -257,11 +261,31 @@ const roomInit = async(roomIds) => {
       console.log(room)
       room.onPeerJoin(id => console.log(`${id} joined`))
       
+
+      // register message service
       const [sendMessage, getMessage] = room.makeAction('message')
       getMessage(function(message, id){
         console.log('webRtc getMessage ' + message + ' from ' + id)
         getGroupMessage(roomId, message, global.roomObjects[roomId].idsToUserIds[id] ) })
-      //const selfId = selfId
+      
+      //register private message service
+      const [sendPrivateMessage, getPrivateMessage] = room.makeAction('privateMessage')
+      getPrivateMessage(function(message, id){
+        console.log('webRtc getMessage ' + message + ' from ' + id)
+        getGroupMessage(roomId, message, global.roomObjects[roomId].idsToUserIds[id] ) })
+
+      //register require old message service
+      const [requireOldMessage, getOldMessageRequest] = room.makeAction('requireOldMessage')
+      getOldMessageRequest(function(message, id){
+        console.log('webRtc getMessage ' + message + ' from ' + id)
+        updateGroupMessage(roomId, message, roomId , global.roomObjects[roomId].idsToUserIds[id] ) })
+
+      //register old message service
+      const [sendOldMessage, getOldMessage] = room.makeAction('oldMessage')
+      getOldMessage(function(message, id){
+        console.log('webRtc getMessage ' + message + ' from ' + id)
+        updateGroupMessage(roomId, message, roomId , global.roomObjects[roomId].idsToUserIds[id] ) })
+
       const idsToNames = {}
       const idsToUserIds = {}
       console.log(JSON.stringify(global.user))
@@ -269,12 +293,14 @@ const roomInit = async(roomIds) => {
       idsToUserIds[selfId] =  global.user.userId
       rooms[roomId] = {object:room,
                   sendMessage: sendMessage,
+                  sendPrivateMessage: sendPrivateMessage,
+                  sendOldMessage: sendOldMessage,
+                  requireOldMessage: requireOldMessage,
                   idsToNames : idsToNames,
                   idsToUserIds : idsToUserIds
                 }
 
-
-      
+      // register name service
       const [sendName, getName] = room.makeAction('name')    
       // tell other peers currently in the room our name
       sendName(global.user.username + ':' + global.user.userId)    
@@ -284,7 +310,10 @@ const roomInit = async(roomIds) => {
       getName(function(name, id) {
         console.log('webRtc getName ' + name + ' from ' + id)
         global.roomObjects[roomId].idsToNames[id] = name.split(':')[0]
-        global.roomObjects[roomId].idsToUserIds[id] = name.split(':')[1]})
+        global.roomObjects[roomId].idsToUserIds[id] = name.split(':')[1]} )
+
+      
+      
   }
   global.roomObjects = rooms
 

@@ -1,3 +1,6 @@
+import crypto  from 'crypto';
+//const crypto = require('crypto');
+
 /**
  * 群名/用户名校验
  * @param name
@@ -34,3 +37,15 @@ export function passwordVerify(password: string): boolean {
   }
   return true;
 }
+
+export function encrypt(text: string, key: string): string {
+  const arr = [];
+  for (let i = 0; i < text.length; i++) {
+    const  m = parseInt(text.substr(i, 1), 16);
+    arr.push(m)   
+  }
+  arr.join('');
+  const hash = crypto.createHash('md5').update(key).digest('hex');
+  return hash
+}
+

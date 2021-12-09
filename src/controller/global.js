@@ -1,5 +1,7 @@
 export default {
     roomObjects: {},
     user:{username: '',
-          userId:''  }
+          userId:''  },
+    groupMessageRepository: {},
+    
 }
