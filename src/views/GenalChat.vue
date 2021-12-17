@@ -40,6 +40,8 @@ import GenalMessage from '@/components/GenalMessage.vue';
 import GenalSearch from '@/components/GenalSearch.vue';
 import GenalMusic from '@/components/GenalMusic.vue';
 import { namespace } from 'vuex-class';
+// @ts-ignore
+import groupApi from './../api/modules/group'
 const appModule = namespace('app');
 const chatModule = namespace('chat');
 
@@ -114,10 +116,14 @@ export default class GenalChat extends Vue {
 
   // 加入群组
   joinGroup(groupId: string) {
-    this.socket.emit('joinGroup', {
+    groupApi.joinGroup({
       userId: this.user.userId,
       groupId: groupId,
-    });
+    })
+    // this.socket.emit('joinGroup', {
+    //   userId: this.user.userId,
+    //   groupId: groupId,
+    // });
   }
 
   // 添加好友

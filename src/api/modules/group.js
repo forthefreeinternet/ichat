@@ -1,6 +1,6 @@
 // import request from '@/utils/request'
 // import { API } from './../index'
-import group from './../../controller/group'
+import groupController from './../../controller/group'
 import store from './../../store/index'
 import { RCode } from './../../common/constant/rcode';
 
@@ -35,6 +35,21 @@ export default {
   getRecentGroupConversation(data) {
     return request.post(`${API}/group/recent`, data)
   },
+
+clientJoinGroup( data ){
+  store.dispatch('chat/joinGroup',data)
+},
+
+serverJoinGroup( data ){
+  groupController.joinGroup(data)
+},
+
+joinGroupSocket(){
+
+},
+
+
+
   /**
    * ------------------华丽分界线，以下是和群组消息有关的API------------------------
    */
@@ -65,7 +80,7 @@ export default {
   },
 
   sendGroupMessage(data){
-    group.sendGroupMessage(data)
+    groupController.sendGroupMessage(data)
     
   }
 }

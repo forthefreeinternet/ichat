@@ -16,7 +16,7 @@ import { serviceGroup } from './../common/constant/service'
 import global from './global'
 import store from './../store/index'
 
-
+import localforage from 'localforage'
 import Web3 from 'web3'//'./../assets/js/web3.min'
 import utils from './../utils/common'
 //const Web3 = require('web3');
@@ -64,11 +64,12 @@ for (let i = 0; i < serviceMessage.length; i++)
   }})
 }
 }
-const login = (req) => {
+const login = async(req) => {
   let [ account, password] = [req.username, req.password]
   const nowTimestamp = Date.now()
   
   let localAccount = JSON.parse(localStorage.getItem(account));//the string typed in is the key mapped to a decrypted account,
+  localAccount = JSON.parse(await localforage.getItem(account));
   
   var web3 = new Web3(new Web3.providers.WebsocketProvider("wss://rinkeby.infura.io/ws/v3/a898a2d231e647c7928dc457c6d441c8"));
   try{
@@ -240,7 +241,7 @@ const login = (req) => {
 //     },
 //   };
 // }
-const register = (req, res) => {
+const register = async(req, res) => {
   console.log("test1-user.js")
   //console.log(req.account)
   //let { accountName, password, rePassword, cvCode, avatar } = req//.body
@@ -256,6 +257,14 @@ const register = (req, res) => {
 
   //console.log(accountName)
   if (localStorage.getItem(accountName) != null){
+    return {
+       code: RCode.FAIL, msg:'用户已被注册,请换个用户名重试', data: '' 
+              // status: 1003,
+              // data: '',
+              // msg: '用户已被注册,请换个用户名重试'
+    }
+  }
+  if (await localforage.getItem(accountName) != null){
     return {
        code: RCode.FAIL, msg:'用户已被注册,请换个用户名重试', data: '' 
               // status: 1003,
@@ -281,6 +290,7 @@ const register = (req, res) => {
   'contactList': {}, role : 'user' , publicId: account2.address , group: [{groupId: '0'}]}
   global.user = info
   localStorage.setItem(accountName , JSON.stringify(info))
+  await localforage.setItem(accountName , JSON.stringify(info))
   return {
     msg:'注册成功',
     data: { 

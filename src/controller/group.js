@@ -177,44 +177,79 @@ const getAllGroup = async (req, res) => {
   })
 }
 
+  // 加入群组的socket连接
+ 
+  const joinGroupSocket= async( data) => {
+    const group = await this.groupRepository.findOne({groupId: data.groupId});
+    const user = await this.userRepository.findOne({userId: data.userId});
+    if(group && user) {
+      client.join(group.groupId);
+      const res = { group: group, user: user};
+      this.server.to(group.groupId).emit('joinGroupSocket', {code: RCode.OK, msg:`${user.username}加入群${group.groupName}`, data: res});
+    } else {
+      this.server.to(data.userId).emit('joinGroupSocket', {code:RCode.FAIL, msg:'进群失败', data:''});
+    }
+  }
 
 
 // 加入群组
 
 const joinGroup = async(data) => {
-  const group = { groupId: data.groupId , groupName: data.groupName}
-  const user = { userId: data.userId , username: data.username}
-  console.log(store)
-  store.dispatch('chat/joinGroup', {
-    code: RCode.OK,
-    msg: `${user.username}加入群${group.groupName}`,
-    data: { group: group, user: user }
-  })
-  // const isUser = await this.userRepository.findOne({userId: data.userId});
-  // if(isUser) {
-  //   const group = { groupId: data.groupId , groupName: ''} //await this.groupRepository.findOne({ groupId: data.groupId });
-  //   let userGroup = await this.groupUserRepository.findOne({ groupId: group.groupId, userId: data.userId });
-  //   const user = await this.userRepository.findOne({userId: data.userId});
-  //   if (group && user) {
-  //     if (!userGroup) {
-  //       data.groupId = group.groupId;
-  //       userGroup = await this.groupUserRepository.save(data);
-  //     }
-  //     client.join(group.groupId);
-  //     const res = { group: group, user: user };     
-  //     this.server.to(group.groupId).emit('joinGroup', {
-  //       code: RCode.OK,
-  //       msg: `${user.username}加入群${group.groupName}`,
-  //       data: res
-  //     });
-  //     this.getActiveGroupUser(); 
-  //   } else {
-  //     store.dispatch('joinGroup', { code: RCode.FAIL, msg: '进群失败', data: '' });
-  //   }
-  // } else {
-  //   store.dispatch('joinGroup', { code: RCode.FAIL, msg: '你没资格进群'});
-  // }
+  //--------------
+  //这部分是本app的测试版本的代码
+  // const group = { groupId: data.groupId , groupName: data.groupName}
+  // const user = { userId: data.userId , username: data.username}
+  // console.log(store)
+  // store.dispatch('chat/joinGroup', {
+  //   code: RCode.OK,
+  //   msg: `${user.username}加入群${group.groupName}`,
+  //   data: { group: group, user: user }
+  // })
+  //--------------
+
+  //const isUser = await this.userRepository.findOne({userId: data.userId});
+  if(true) {
+    
+    const group = { groupId: data.groupId , groupName: data.groupName} //await this.groupRepository.findOne({ groupId: data.groupId }); 这里应该获取群详细信息
+    let userGroup = await global.db.groupUserRepository.where({ groupId: group.groupId, userId: data.userId }).first();//***** */
+    
+    const user =  global.user//await this.userRepository.findOne({userId: data.userId});
+    console.log(userGroup)
+    if (group && user) {
+      if (!userGroup) {
+        data.groupId = group.groupId;
+        console.log({groupId:data.groupId , userId: data.userId})
+        const test = await global.db.groupUserRepository.toArray()
+        console.log(test)
+        userGroup = await global.db.groupUserRepository.add({groupId:data.groupId , userId: data.userId});
+        console.log(userGroup)
+      }
+
+      //client.join(group.groupId);
+      const res = { group: group, user: user };    
+      console.log(res)
+      
+      groupApi.clientJoinGroup({
+          code: RCode.OK,
+          msg: `${user.username}加入群${group.groupName}`,
+          data: res
+        }) 
+      // this.server.to(group.groupId).emit('joinGroup', {
+      //   code: RCode.OK,
+      //   msg: `${user.username}加入群${group.groupName}`,
+      //   data: res
+      // });
+      //this.getActiveGroupUser(); 
+    } else {
+      groupApi.clientJoinGroup({ code: RCode.FAIL, msg: '进群失败', data: '' })
+      
+    }
+  } else {
+    groupApi.clientJoinGroup({ code: RCode.FAIL, msg: '你没资格进群'});
+  }
 }
+
+
 const getGroupMessage = async(roomId,message, userId) => {
   console.log(message);  
   groupApi.getGroupMessage(roomId,message, userId)
@@ -238,7 +273,7 @@ const sendGroupMessage = async(data) => {
       data.content = randomName;
     }
     data.time = new Date().valueOf(); // 使用服务端时间
-    //await this.groupMessageRepository.save(data);
+    await global.db.groupMessageRepository.put(data);
     console.log(global.user)
     console.log(global.roomObjects)
     global.roomObjects[data.groupId].sendMessage(data.content)
@@ -269,13 +304,13 @@ const roomInit = async(roomIds) => {
         getGroupMessage(roomId, message, global.roomObjects[roomId].idsToUserIds[id] ) })
       
       //register private message service
-      const [sendPrivateMessage, getPrivateMessage] = room.makeAction('privateMessage')
+      const [sendPrivateMessage, getPrivateMessage] = room.makeAction('private')
       getPrivateMessage(function(message, id){
         console.log('webRtc getMessage ' + message + ' from ' + id)
         getGroupMessage(roomId, message, global.roomObjects[roomId].idsToUserIds[id] ) })
 
       //register require old message service
-      const [requireOldMessage, getOldMessageRequest] = room.makeAction('requireOldMessage')
+      const [requireOldMessage, getOldMessageRequest] = room.makeAction('requireOld')
       getOldMessageRequest(function(message, id){
         console.log('webRtc getMessage ' + message + ' from ' + id)
         updateGroupMessage(roomId, message, roomId , global.roomObjects[roomId].idsToUserIds[id] ) })
@@ -317,15 +352,15 @@ const roomInit = async(roomIds) => {
   }
   global.roomObjects = rooms
 
-  try {
-      const value = await localforage.setItem('roomService', rooms);
-      // This code runs once the value has been loaded
-      // from the offline store.
-      console.log(value);
-  } catch (err) {
-      // This code runs if there were any errors.
-      console.log(err);
-  }
+  // try {
+  //     const value = await localforage.setItem('roomService', rooms);
+  //     // This code runs once the value has been loaded
+  //     // from the offline store.
+  //     console.log(value);
+  // } catch (err) {
+  //     // This code runs if there were any errors.
+  //     console.log(err);
+  // }
   
   return rooms
 }

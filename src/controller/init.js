@@ -7,36 +7,51 @@ import {joinRoom} from 'trystero'
 import localforage from 'localforage'
 import groupController from './group'
 import zango from 'zangodb'
+import chatApi from './../api/modules/chat'
+import Dexie from "dexie";
+import db from './db'
+import global from './global';
+
+export
 
 // 获取所有群和好友数据
 
-const getAllData = (  user ) => {
-    let db = new zango.Db(user.userId);
-    let groupUserRepository = db.collection('groupUserRepository');
-    let groupMessageRepository = db.collection('groupMessageRepository');
-    let groupRepository = db.collection('groupRepository');
+const getAllData = async(  user ) => {
+  const db = new Dexie(user.userId);
+  console.log(db)
+  global.db = db
+  db.version(1).stores({
+    groupUserRepository: "++_id, groupId, userId",
+    groupMessageRepository: "++_id, userId, groupId, content, messageType, time",
+    groupRepository: "groupId, userId, groupName, notice,createTime",
+    friendRepository: "++_id, friendId, userId",
+  });
+  console.log(db.groupMessageRepository)
+   
   
-    const groupMap = JSON.parse(localStorage.getItem(user.username )).group
+    const groupMap = await db.groupUserRepository.where({userId: user.userId}).toArray();//******** */
     const groupIds = groupMap.map( (item) => {
               return item.groupId;
             });
-    groupController.roomInit(groupIds);
+    //groupController.roomInit(groupIds); //************* */
 //     let groupArr: GroupDto[] = [];
 let groupArr = [];
 //     let friendArr: FriendDto[] = [];
+let friendArr = [];
 //     const userGather: {[key: string]: User} = {};
 const userGather= {};
 //     let userArr: FriendDto[] = [];
+let userArr = [];
   
 //     const groupMap: GroupMap[] = await this.groupUserRepository.find({userId: user.userId}); 
-    const groupMap = groupUserRepository.find({userId: user.userId});
+    //const groupMap = groupUserRepository.find({userId: user.userId}); //********** */
 //     const friendMap: UserMap[] = await this.friendRepository.find({userId: user.userId});
-
+const friendMap=  await db.friendRepository.where({userId: user.userId});
 //     const groupPromise = groupMap.map(async (item) => {
 //       return await this.groupRepository.findOne({groupId: item.groupId});
 //     });
     const groupPromise = groupMap.map(async (item) => {
-      return groupRepository.findOne({groupId: item.groupId});
+      return db.groupRepository.where({groupId: item.groupId}); //这里应该返回群详细信息
     });
 //     const groupMessagePromise = groupMap.map(async (item) => {
 //       let groupMessage = await getRepository(GroupMessage)
@@ -56,17 +71,17 @@ const userGather= {};
 //     });
     const groupMessagePromise = groupMap.map(async (item) => {
       let groupMessage = []
-      groupMessageRepository
-      .find({groupId: item.groupId})
-      .sort({'time': -1})
-      .limit(30)
-      .toArray(function(err, docs) {groupMessage = docs});
-      
+      await db.groupMessageRepository.orderBy('time')
+      groupMessage = await db.groupMessageRepository
+      .where({groupId: item.groupId}).limit(30)
+      .toArray();
+      console.log(groupMessage)
       groupMessage = groupMessage.reverse();
       // 这里获取一下发消息的用户的用户信息
       for(const message of groupMessage) {
         if(!userGather[message.userId]) {
           //userGather[message.userId] = await this.userRepository.findOne({userId: message.userId});
+          userGather[message.userId] = await db.userRepository.where({userId: message.userId}).first();
         }
       }
       return groupMessage;
@@ -105,6 +120,7 @@ const groupsMessage = await Promise.all(groupMessagePromise);
     });
     groupArr = groups;
 
+
 //     const friends: FriendDto[] = await Promise.all(friendPromise);
 //     const friendsMessage: Array<FriendMessageDto[]> = await Promise.all(friendMessagePromise);
 //     friends.map((friend, index) => {
@@ -120,6 +136,12 @@ const groupsMessage = await Promise.all(groupMessagePromise);
 //       friendData: friendArr,
 //       userData: userArr
 //     }});
+
+chatApi.refreshChatData({code:RCode.OK, msg: '获取聊天数据成功', data: {
+      groupData: groupArr,
+      friendData: friendArr,
+      userData: userArr
+    }})
  
 }
 const userInit = () => {

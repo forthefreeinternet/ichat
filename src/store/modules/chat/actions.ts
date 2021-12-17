@@ -22,6 +22,10 @@ import { DEFAULT_GROUP } from '@/const/index';
 
 const initController = require('./../../../controller/init').default
 const groupController = require('./../../../controller/group').default
+// @ts-ignore
+import groupApi from './../../../api/modules/group'
+// @ts-ignore
+import chatApi from './../../../api/modules/chat'
 import { serviceGroup } from './../../../common/constant/service';
 import { RCode } from './../../../common/constant/rcode';
 
@@ -37,7 +41,7 @@ const actions: ActionTree<ChatState, RootState> = {
 
    joinGroup({ commit, state, dispatch, rootState }, res : ServerRes){ 
     console.log('on joinGroup', res);
-    console.log('rootState', JSON.stringify(rootState));
+    //console.log('rootState', JSON.stringify(rootState));
     let user = rootState.app.user;   
     if (res.code) {
       return Vue.prototype.$message.error(res.msg);
@@ -55,7 +59,7 @@ const actions: ActionTree<ChatState, RootState> = {
       if (!state.groupGather[group.groupId]) {
         commit(SET_GROUP_GATHER, group);
         // 获取群里面所有用户的用户信息
-        //socket.emit('chatData', user); //************** */
+        chatApi.getChatData(user)//socket.emit('chatData', user); //************** */
       }
       Vue.prototype.$message.info(`成功加入群${group.groupName}`);
       commit(SET_ACTIVE_ROOM, state.groupGather[group.groupId]);
@@ -104,7 +108,7 @@ const actions: ActionTree<ChatState, RootState> = {
       if (activeRoom && activeRoom.groupId !== res.data.groupId) {
         commit(ADD_UNREAD_GATHER, res.data.groupId);
       }
-      console.log('rootState', JSON.stringify(rootState));
+      //console.log('rootState', JSON.stringify(rootState));
     } else {
       Vue.prototype.$message.error(res.msg);
     }
@@ -121,10 +125,21 @@ const actions: ActionTree<ChatState, RootState> = {
     }})
   },
 
+
+  chatData({ commit, state, dispatch, rootState },  res : ServerRes){
+    if (res.code) {
+      return Vue.prototype.$message.error(res.msg);
+    }
+    dispatch('handleChatData', res.data);
+    commit(SET_DROPPED, false);
+  },
+
   // 初始化socket连接和监听socket事件
   async connectSocket({ commit, state, dispatch, rootState }, callback) {
+    let user = rootState.app.user; 
+    initController.getAllData(user);
           //加入服务号
-          groupController.joinGroup({
+         await groupController.joinGroup({
             userId: rootState.app.user.userId,
             username: rootState.app.user.username,
             groupId:    serviceGroup.groupId,
@@ -133,8 +148,8 @@ const actions: ActionTree<ChatState, RootState> = {
           
   initController.serviceInit();
   
-    let user = rootState.app.user;  
-    initController.getAllData(user);
+     
+    
 
     console.log('rootState', rootState);  
     let socket: SocketIOClient.Socket = io.connect(`/?userId=${user.userId}`, { reconnection: true });
@@ -310,10 +325,18 @@ const actions: ActionTree<ChatState, RootState> = {
     let userArr = payload.userData;
     if (groupArr.length) {
       for (let group of groupArr) {
-        socket.emit('joinGroupSocket', {
+        console.log({
           groupId: group.groupId,
           userId: user.userId,
-        });
+        })
+        groupApi.joinGroupSocket( {
+            groupId: group.groupId,
+            userId: user.userId,
+          })
+        // socket.emit('joinGroupSocket', {
+        //   groupId: group.groupId,
+        //   userId: user.userId,
+        // });
         commit(SET_GROUP_GATHER, group);
       }
     }
