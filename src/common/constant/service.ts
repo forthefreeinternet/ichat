@@ -1,6 +1,6 @@
 export const serviceGroup = 
 {
-    groupId : '0',
+    groupId : 'o',
     groupName : '服务号'
 }
 

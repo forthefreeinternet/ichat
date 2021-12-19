@@ -44,10 +44,13 @@ serverJoinGroup( data ){
   groupController.joinGroup(data)
 },
 
-joinGroupSocket(){
-
+joinGroupSocket(data){
+groupController.joinGroupSocket(data)
 },
 
+clientJoinGroupSocket(data){
+store.dispatch('chat/joinGroupSocket' , data)
+},
 
 
   /**
@@ -68,7 +71,7 @@ joinGroupSocket(){
     return request.post(`${API}/groupnews/lastnews`, data)
   },
 
-  getGroupMessage(groupId, message,  userId){
+  receiveGroupMessage(groupId, message,  userId){
     store.dispatch('chat/groupMessage', {code: RCode.OK, msg:'', data: {
       userId: userId,
       groupId: groupId,
@@ -77,6 +80,12 @@ joinGroupSocket(){
       height: undefined,
       messageType:'text',
     }})
+  },
+
+  async getGroupMessages(groupId, current, pageSize){
+    let data = await groupController.getGroupMessages(groupId, current, pageSize)
+    return data
+    
   },
 
   sendGroupMessage(data){

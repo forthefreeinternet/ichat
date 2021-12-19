@@ -11,21 +11,28 @@ import chatApi from './../api/modules/chat'
 import Dexie from "dexie";
 import db from './db'
 import global from './global';
+import Web3 from 'web3'
 
 export
 
 // 获取所有群和好友数据
 
 const getAllData = async(  user ) => {
-  const db = new Dexie(user.userId);
-  console.log(db)
-  global.db = db
-  db.version(1).stores({
-    groupUserRepository: "++_id, groupId, userId",
-    groupMessageRepository: "++_id, userId, groupId, content, messageType, time",
-    groupRepository: "groupId, userId, groupName, notice,createTime",
-    friendRepository: "++_id, friendId, userId",
-  });
+  dbInit(user.userId)
+  const db = global.db
+  // const db = new Dexie(user.userId);
+  // console.log(db)
+  // global.db = db
+  // db.version(1).stores({
+  //   groupUserRepository: "++_id, groupId, userId",
+  //   groupMessageRepository: "++_id, userId, groupId, content, messageType, time",
+  //   groupRepository: "groupId, userId, groupName, createTime",
+  //   friendRepository: "++_id, friendId, userId",
+  //   userRepository: "userId, username"
+  // });
+  
+
+  
   console.log(db.groupMessageRepository)
    
   
@@ -51,7 +58,7 @@ const friendMap=  await db.friendRepository.where({userId: user.userId});
 //       return await this.groupRepository.findOne({groupId: item.groupId});
 //     });
     const groupPromise = groupMap.map(async (item) => {
-      return db.groupRepository.where({groupId: item.groupId}); //这里应该返回群详细信息
+      return db.groupRepository.where({groupId: item.groupId}).first(); //这里应该返回群详细信息
     });
 //     const groupMessagePromise = groupMap.map(async (item) => {
 //       let groupMessage = await getRepository(GroupMessage)
@@ -72,8 +79,12 @@ const friendMap=  await db.friendRepository.where({userId: user.userId});
     const groupMessagePromise = groupMap.map(async (item) => {
       let groupMessage = []
       await db.groupMessageRepository.orderBy('time')
-      groupMessage = await db.groupMessageRepository
-      .where({groupId: item.groupId}).limit(30)
+      //await db.groupMessageRepository.reverse()
+      console.log('end246')
+      groupMessage = await db.groupMessageRepository.where('[groupId+time]').between(
+        [ item.groupId, Dexie.minKey],
+        [ item.groupId, Dexie.maxKey])
+      .reverse().limit(30)
       .toArray();
       console.log(groupMessage)
       groupMessage = groupMessage.reverse();
@@ -81,7 +92,7 @@ const friendMap=  await db.friendRepository.where({userId: user.userId});
       for(const message of groupMessage) {
         if(!userGather[message.userId]) {
           //userGather[message.userId] = await this.userRepository.findOne({userId: message.userId});
-          userGather[message.userId] = await db.userRepository.where({userId: message.userId}).first();
+          userGather[message.userId] = await db.userRepository.where({userId: message.userId}).first(); //*********** */
         }
       }
       return groupMessage;
@@ -119,6 +130,7 @@ const groupsMessage = await Promise.all(groupMessagePromise);
       }
     });
     groupArr = groups;
+    console.log(groupArr)
 
 
 //     const friends: FriendDto[] = await Promise.all(friendPromise);
@@ -137,6 +149,10 @@ const groupsMessage = await Promise.all(groupMessagePromise);
 //       userData: userArr
 //     }});
 
+// let rawUser = await global.db.userRepository.where({userId : global.user.userId}).first()
+// if (!rawUser.hasInit){
+//   await serviceInit()
+// }
 chatApi.refreshChatData({code:RCode.OK, msg: '获取聊天数据成功', data: {
       groupData: groupArr,
       friendData: friendArr,
@@ -147,24 +163,57 @@ chatApi.refreshChatData({code:RCode.OK, msg: '获取聊天数据成功', data: {
 const userInit = () => {
   
 }
-const serviceInit = () => {
+
+const serviceInit = async(userId) => {
+  await global.db.userRepository.add({userId : global.user.userId , username : global.user.username})
+  await global.db.groupRepository.add({groupId:serviceGroup.groupId , userId: userId,  groupName: '服务群', createTime: new Date().valueOf(), lastMessage: serviceGroup.groupId })
+  await global.db.groupUserRepository.add({groupId:serviceGroup.groupId , userId: userId});
+  console.log('end1')
+
+
     for (let i = 0; i < serviceMessage.length; i++)
     {
-      store.dispatch('chat/groupMessage', {code: RCode.OK, msg:'', data: {
-        userId: '0',
-        groupId: serviceGroup.groupId,
-        content: serviceMessage[i],
-        width:undefined,
-        height: undefined,
-        messageType:'text',
-      }})
+      await global.db.groupMessageRepository.add(
+        {
+          userId: '0',
+          groupId: serviceGroup.groupId,
+          content: serviceMessage[i],
+          width:undefined,
+          height: undefined,
+          messageType:'text',
+          time: 0
+        })
+      //groupController.receiveGroupMessage(serviceGroup.groupId,  serviceMessage[i],global.user.userId ) 
     }
-    }
+  }
+
+const dbInit = async(userId) => {
+  const db = new Dexie(userId);
+  console.log(db)
+  global.db = db
+  db.version(1).stores({
+    groupUserRepository: "++_id, groupId, userId",
+    groupMessageRepository: "++_id, userId, groupId, content, messageType, time, preHash, hash, signature, [groupId+time]",
+    groupRepository: "groupId, userId, groupName, createTime, lastMessage",
+    friendRepository: "++_id, friendId, userId",
+    userRepository: "userId, username"
+  });
+  var web3 = new Web3(new Web3.providers.WebsocketProvider("wss://rinkeby.infura.io/ws/v3/a898a2d231e647c7928dc457c6d441c8"));
+  global.web3 = web3
+}
+
+const dataInit = async() => {
+  
+  
+  
+}
+
 
 
 
 export default {
     serviceInit,
-    
+    dbInit,
+    dataInit,
     getAllData
 }

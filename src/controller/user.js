@@ -15,6 +15,7 @@ import { serviceMessage } from './../common/constant/service';
 import { serviceGroup } from './../common/constant/service'
 import global from './global'
 import store from './../store/index'
+import initController from './init'
 
 import localforage from 'localforage'
 import Web3 from 'web3'//'./../assets/js/web3.min'
@@ -67,13 +68,14 @@ for (let i = 0; i < serviceMessage.length; i++)
 const login = async(req) => {
   let [ account, password] = [req.username, req.password]
   const nowTimestamp = Date.now()
-  
+  let privateKey
   let localAccount = JSON.parse(localStorage.getItem(account));//the string typed in is the key mapped to a decrypted account,
   localAccount = JSON.parse(await localforage.getItem(account));
   
   var web3 = new Web3(new Web3.providers.WebsocketProvider("wss://rinkeby.infura.io/ws/v3/a898a2d231e647c7928dc457c6d441c8"));
   try{
-  account = web3.eth.accounts.decrypt(localAccount.secPrivateKey, password);
+    account = web3.eth.accounts.decrypt(localAccount.secPrivateKey, password);
+     privateKey = account.privateKey
   }catch{
     console.log("密码错误！");
     
@@ -113,6 +115,7 @@ const login = async(req) => {
     avatar: `api/avatar/avatar(${Math.round(Math.random()*19 +1)}).png`,
     role: 'user',
     tag: '',
+    privateKey: privateKey
     //createTime: time,
     //publicId: account2.address,
   }//user,
@@ -288,9 +291,24 @@ const register = async(req, res) => {
   //localStorage.setItem($('#js_input').val(), JSON.stringify(this.$web3.eth.accounts.encrypt(account.privateKey, $('#js_input_password').val())));
   let info = {'accountName': accountName, 'accountAddress': accountAddress , 'secPrivateKey': secPrivateKey , 
   'contactList': {}, role : 'user' , publicId: account2.address , group: [{groupId: '0'}]}
-  global.user = info
+  
+  global.user = {
+    username: accountName,
+    userId : accountAddress,       
+    password: password,
+    privateKey : account.privateKey,
+    avatar: `api/avatar/avatar(${Math.round(Math.random()*19 +1)}).png`,
+    role: 'user',
+    tag: '',
+    //createTime: time,
+    //publicId: account2.address,
+  }
   localStorage.setItem(accountName , JSON.stringify(info))
   await localforage.setItem(accountName , JSON.stringify(info))
+
+  await initController.dbInit(accountAddress)
+  await initController.serviceInit(accountAddress)
+  
   return {
     msg:'注册成功',
     data: { 

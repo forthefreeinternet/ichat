@@ -66,39 +66,40 @@ const actions: ActionTree<ChatState, RootState> = {
     }
   },
 
-  // socket.on('joinGroupSocket', (res: ServerRes) => {
-  //   console.log('on joinGroupSocket', res);
-  //   if (res.code) {
-  //     return Vue.prototype.$message.error(res.msg);
-  //   }
-  //   let newUser: Friend = res.data.user;
-  //   let group: Group = res.data.group;
-  //   let friendGather = state.friendGather;
-  //   if (newUser.userId != user.userId) {
-  //     commit(SET_USER_GATHER, newUser);
-  //     if (friendGather[newUser.userId]) {
-  //       // 当用户的好友更新了用户信息
-  //       let messages;
-  //       if (friendGather[newUser.userId].messages) {
-  //         messages = friendGather[newUser.userId].messages;
-  //       }
-  //       commit(SET_FRIEND_GATHER, newUser);
-  //       commit(SET_FRIEND_MESSAGES, messages);
-  //     }
-  //     // @ts-ignore 解决重复进群消息问题
-  //     if (window.msg === newUser.userId) {
-  //       return;
-  //     }
-  //     // @ts-ignore
-  //     window.msg = newUser.userId;
-  //     return Vue.prototype.$message.info(`${newUser.username}加入群${group.groupName}`);
-  //   } else {
-  //     if (!state.groupGather[group.groupId]) {
-  //       commit(SET_GROUP_GATHER, group);
-  //     }
-  //     commit(SET_USER_GATHER, newUser);
-  //   }
-  // });
+  joinGroupSocket({ commit, state, dispatch, rootState }, res: ServerRes){
+    let user = rootState.app.user; 
+    console.log('on joinGroupSocket', res);
+    if (res.code) {
+      return Vue.prototype.$message.error(res.msg);
+    }
+    let newUser: Friend = res.data.user;
+    let group: Group = res.data.group;
+    let friendGather = state.friendGather;
+    if (newUser.userId != user.userId) {
+      commit(SET_USER_GATHER, newUser);
+      if (friendGather[newUser.userId]) {
+        // 当用户的好友更新了用户信息
+        let messages;
+        if (friendGather[newUser.userId].messages) {
+          messages = friendGather[newUser.userId].messages;
+        }
+        commit(SET_FRIEND_GATHER, newUser);
+        commit(SET_FRIEND_MESSAGES, messages);
+      }
+      // @ts-ignore 解决重复进群消息问题
+      if (window.msg === newUser.userId) {
+        return;
+      }
+      // @ts-ignore
+      window.msg = newUser.userId;
+      return Vue.prototype.$message.info(`${newUser.username}加入群${group.groupName}`);
+    } else {
+      if (!state.groupGather[group.groupId]) {
+        commit(SET_GROUP_GATHER, group);
+      }
+      commit(SET_USER_GATHER, newUser);
+    }
+  },
 
   groupMessage( { commit, state, dispatch, rootState }, res: ServerRes){
     console.log('on groupMessage', res);
@@ -139,14 +140,14 @@ const actions: ActionTree<ChatState, RootState> = {
     let user = rootState.app.user; 
     initController.getAllData(user);
           //加入服务号
-         await groupController.joinGroup({
-            userId: rootState.app.user.userId,
-            username: rootState.app.user.username,
-            groupId:    serviceGroup.groupId,
-            groupName: serviceGroup.groupName,
-          });
+  //        await groupController.joinGroup({
+  //           userId: rootState.app.user.userId,
+  //           username: rootState.app.user.username,
+  //           groupId:    serviceGroup.groupId,
+  //           groupName: serviceGroup.groupName,
+  //         });
           
-  initController.serviceInit();
+  // initController.serviceInit();
   
      
     
@@ -325,6 +326,7 @@ const actions: ActionTree<ChatState, RootState> = {
     let userArr = payload.userData;
     if (groupArr.length) {
       for (let group of groupArr) {
+        console.log('end111')
         console.log({
           groupId: group.groupId,
           userId: user.userId,

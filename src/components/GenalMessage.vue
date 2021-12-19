@@ -48,6 +48,8 @@ import { namespace } from 'vuex-class';
 const chatModule = namespace('chat');
 const appModule = namespace('app');
 import { isUrl, parseText, processReturn } from '@/utils/common';
+// @ts-ignore
+import groupApi from './../api/modules/group'
 
 @Component({
   components: {
@@ -210,13 +212,20 @@ export default class GenalMessage extends Vue {
     let groupId = this.activeRoom.groupId;
     let current = this.activeRoom.messages!.length;
     let currentMessage = this.activeRoom.messages ? this.activeRoom.messages : [];
-    let data: PagingResponse = processReturn(
-      await api.getGroupMessages({
+    // let data: PagingResponse = processReturn(
+    //   await api.getGroupMessages({
+    //     groupId,
+    //     current,
+    //     pageSize: this.pageSize,
+    //   })
+    // );
+    let data = processReturn(
+      await groupApi.getGroupMessages({
         groupId,
         current,
         pageSize: this.pageSize,
       })
-    );
+    )  
     if (data) {
       if (!data.messageArr.length || data.messageArr.length < this.pageSize) {
         this.isNoData = true;
