@@ -6,6 +6,8 @@ const getters: GetterTree<AppState, RootState> = {
   user(state) {
     state.user;
     let user = cookie.get('user');
+    // @ts-ignore
+    user = localStorage.getItem('user')
     if (!user) {
       return {};
     }

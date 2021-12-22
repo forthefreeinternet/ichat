@@ -36,11 +36,8 @@ const getAllData = async(  user ) => {
   console.log(db.groupMessageRepository)
    
   
-    const groupMap = await db.groupUserRepository.where({userId: user.userId}).toArray();//******** */
-    const groupIds = groupMap.map( (item) => {
-              return item.groupId;
-            });
-    //groupController.roomInit(groupIds); //************* */
+    
+
 //     let groupArr: GroupDto[] = [];
 let groupArr = [];
 //     let friendArr: FriendDto[] = [];
@@ -51,9 +48,13 @@ const userGather= {};
 let userArr = [];
   
 //     const groupMap: GroupMap[] = await this.groupUserRepository.find({userId: user.userId}); 
-    //const groupMap = groupUserRepository.find({userId: user.userId}); //********** */
+const groupMap = await db.groupUserRepository.where({userId: user.userId}).toArray();//******** */
+const groupIds = groupMap.map( (item) => {
+  return item.groupId;
+});
+//groupController.roomInit(groupIds); //************* */
 //     const friendMap: UserMap[] = await this.friendRepository.find({userId: user.userId});
-const friendMap=  await db.friendRepository.where({userId: user.userId});
+const friendMap=  await db.friendRepository.where({userId: user.userId}).toArray();
 //     const groupPromise = groupMap.map(async (item) => {
 //       return await this.groupRepository.findOne({groupId: item.groupId});
 //     });
@@ -114,6 +115,28 @@ const friendMap=  await db.friendRepository.where({userId: user.userId});
 //       return messages.reverse();
 //     });
 
+    const friendPromise = friendMap.map(async (item) => {
+      return await db.userRepository
+        .where({userId: item.friendId}).first()
+      ;
+    });
+    const friendMessagePromise = friendMap.map(async (item) => {
+      const messages = await friendMessageRepository
+      .where('[userId+friendId+time]')
+      .between(
+        [ item.userId, item.friendId, Dexie.minKey],
+        [ item.userId, item.friendId, Dexie.maxKey])
+      .or('[userId+friendId+time]')
+      .between(
+        [ item.friendId, item.userId, Dexie.minKey],
+        [ item.friendId, item.userId, Dexie.maxKey])
+      .reverse()
+      .limit(30)
+      .sortBy('time') //or语句出来顺序会乱，所以这边先排序
+      .toArray();      
+      return messages//.reverse(); //上面排过了，这里不用再排
+    });
+
 //     const groups: GroupDto[]  = await Promise.all(groupPromise);
 const groups = await Promise.all(groupPromise);
 //     const groupsMessage: Array<GroupMessageDto[]> = await Promise.all(groupMessagePromise);
@@ -130,11 +153,13 @@ const groupsMessage = await Promise.all(groupMessagePromise);
       }
     });
     groupArr = groups;
-    console.log(groupArr)
+    console.log('刷新时，从后台获取的群聊信息：',groupArr)
 
 
 //     const friends: FriendDto[] = await Promise.all(friendPromise);
+    const friends = await Promise.all(friendPromise);
 //     const friendsMessage: Array<FriendMessageDto[]> = await Promise.all(friendMessagePromise);
+    const friendsMessage = await Promise.all(friendMessagePromise);
 //     friends.map((friend, index) => {
 //       if(friendsMessage[index] && friendsMessage[index].length) {
 //         friend.messages = friendsMessage[index];
@@ -142,6 +167,14 @@ const groupsMessage = await Promise.all(groupMessagePromise);
 //     });
 //     friendArr = friends;
 //     userArr = [...Object.values(userGather), ...friendArr];
+
+    friends.map((friend, index) => {
+      if(friendsMessage[index] && friendsMessage[index].length) {
+        friend.messages = friendsMessage[index];
+      }
+    });
+    friendArr = friends;
+    userArr = [...Object.values(userGather), ...friendArr];
 
 //     this.server.to(user.userId).emit('chatData', {code:RCode.OK, msg: '获取聊天数据成功', data: {
 //       groupData: groupArr,
@@ -196,7 +229,8 @@ const dbInit = async(userId) => {
     groupMessageRepository: "++_id, userId, groupId, content, messageType, time, preHash, hash, signature, [groupId+time]",
     groupRepository: "groupId, userId, groupName, createTime, lastMessage",
     friendRepository: "++_id, friendId, userId",
-    userRepository: "userId, username"
+    userRepository: "userId, username",
+    friendMessageRepository: "++_id, friendId, userId, content, time, [userId+friendId+time]"
   });
   var web3 = new Web3(new Web3.providers.WebsocketProvider("wss://rinkeby.infura.io/ws/v3/a898a2d231e647c7928dc457c6d441c8"));
   global.web3 = web3

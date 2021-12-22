@@ -127,6 +127,7 @@ export default class GenalMessage extends Vue {
    */
   @Watch('activeRoom.messages', { deep: true })
   changeMessages() {
+    console.log(this.activeRoom.messages)
     if (this.needScrollToBottom) {
       this.addMessage();
     }

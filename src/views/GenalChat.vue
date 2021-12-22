@@ -116,7 +116,7 @@ export default class GenalChat extends Vue {
 
   // 加入群组
   joinGroup(groupId: string) {
-    groupApi.joinGroup({
+    groupApi.serverJoinGroup({
       userId: this.user.userId,
       groupId: groupId,
     })

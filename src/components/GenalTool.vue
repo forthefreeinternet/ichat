@@ -131,6 +131,8 @@ import { DEFAULT_BACKGROUND, DEFAULT_GROUP } from '@/const/index';
 import { namespace } from 'vuex-class';
 import * as apis from '@/api/apis';
 import { processReturn, nameVerify, passwordVerify } from '@/utils/common.ts';
+// @ts-ignore
+import userApi from './../api/modules/user'
 const appModule = namespace('app');
 const chatModule = namespace('chat');
 
@@ -226,17 +228,18 @@ export default class GenalTool extends Vue {
     formData.append('avatar', this.avatar);
     formData.append('userId', this.user.userId);
     formData.append('password', this.user.password);
-    let data = processReturn(await setUserAvatar(formData));
+    //let data = processReturn(await setUserAvatar(formData));
+    let data = processReturn(await userApi.setUserAvatar(this.avatar)) //{ msg: '修改头像成功', data: newUser}
     if (data) {
       this.setUser(data);
       this.setUserGather(data);
       this.uploading = false;
       this.showUpload = false;
       // 通知其他用户个人信息改变
-      this.socket.emit('joinGroupSocket', {
-        groupId: DEFAULT_GROUP,
-        userId: data.userId,
-      });
+      // this.socket.emit('joinGroupSocket', {
+      //   groupId: DEFAULT_GROUP,
+      //   userId: data.userId,
+      // });
     }
   }
 

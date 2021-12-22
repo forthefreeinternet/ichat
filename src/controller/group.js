@@ -187,7 +187,6 @@ const getAllGroup = async (req, res) => {
     const user = await global.db.userRepository.where({userId: data.userId}).first();
     if(true){//group && user) {
       //client.join(group.groupId);
-      console.log(user , 'hiiiiiiiiiiiiiiiiiiiiiiiiiiiii')
       roomInit( data.groupId);
       const res = { group: group, user: user};
       //this.server.to(group.groupId).emit('joinGroupSocket', {code: RCode.OK, msg:`${user.username}加入群${group.groupName}`, data: res});
@@ -216,13 +215,16 @@ const joinGroup = async(data) => {
 
   //const isUser = await this.userRepository.findOne({userId: data.userId});
   if(true) {
-    
-    const group = { groupId: data.groupId , groupName: data.groupName} //await this.groupRepository.findOne({ groupId: data.groupId }); 这里应该获取群详细信息
+    console.log(data)
+    data.groupName = data.groupId.split(':')[0]
+    data.groupId =  data.groupId.split(':')[1]
+    const group = { groupId:data.groupId , groupName: data.groupName} //await this.groupRepository.findOne({ groupId: data.groupId }); 这里应该获取群详细信息
+    console.log(group)
     let userGroup = await global.db.groupUserRepository.where({ groupId: group.groupId, userId: data.userId }).first();//***** */
     
     const user =  global.user//await this.userRepository.findOne({userId: data.userId});
     console.log(userGroup)
-    console.log('end2')
+    
     if (group && user) {
       if (!userGroup) {
         console.log('end3')
@@ -260,30 +262,30 @@ const joinGroup = async(data) => {
 
 //webRTC房间注册的接收信息函数调用此函数
 const receiveGroupMessage = async(roomId,data, userId) => {
-  console.log(data);  
-  console.log(userId, global.user.userId, global.web3.eth.accounts.recover(data.hash ,data.signature)); 
+  console.log('收到消息，类型为：', data.messageType, '发送者为：', data.userId, '内容为：', data.content);  
+  //console.log(userId, global.user.userId, global.web3.eth.accounts.recover(data.hash ,data.signature)); 
 
   //如果是自己发送的消息，不应该进入此函数
   if(data.userId != global.user.userId){ 
-    console.log('1051', data)
+    console.log('开始验证消息')
     //验证消息开始
     //验证签名
     let sender
     try{
       sender = global.web3.eth.accounts.recover(data.hash ,data.signature )
     }catch{
-      console.log('恶意消息')
+      console.log('签名错误')
       return
     }
-    if ( sender != userId) return
+    if ( sender != data.userId) {console.log('假签名', sender, userId);return}
     //验证个人id，群id及hash值
-    if( data.userId != userId) return
-    if( data.groupId != roomId) return
+    //if( data.userId != userId) {console.log('信息的署名错误');return} //不需要是本人发，可以是转发
+    if( data.groupId != roomId) {console.log('错群');return}
     if( data.hash != global.web3.eth.accounts.hashMessage(data.preHash + data.groupId + data.content + data.time)) return
     //验证时间，消息发送时间不能超过当前时间
-    if( data.time > Date.now()) return
+    if( data.time > Date.now()) {console.log('消息时间造假');return}
     //验证消息完毕
-    console.log('1051111111111', data)
+    console.log('消息验证通过')
     if(data.messageType == 'text'){
       
       const groupLastMessage = await global.db.groupMessageRepository.where('[groupId+time]').between(
@@ -293,21 +295,21 @@ const receiveGroupMessage = async(roomId,data, userId) => {
       
       
       //如果收到的消息发送时间在已经保存的最后一条消息之前，则入库后重新获取数据渲染。这是去中心化app的特性，因为收到消息并不及时。
-      console.log(data.time , '1051111111111', groupLastMessage.time)
+      console.log(data.time , '大于还是小于？', groupLastMessage.time)
       if(data.time > groupLastMessage.time){
-        
-        console.log('前端渲染')
-        groupApi.receiveGroupMessage(roomId,data.content, userId) //调用前端函数进行渲染
         //存储到聊天记录数据库
-        global.db.groupMessageRepository.add( data ).catch(function (err) {
-          return console.log('alll' ,err);
+        global.db.groupMessageRepository.add( data ).then(() => {
+          console.log('前端渲染')
+          groupApi.receiveGroupMessage(roomId,data.content, userId) //调用前端函数进行渲染
+        }).catch(function (err) {
+          return console.log(data, '聊天记录存储错误' ,err);
         });
       }
       else{
         global.db.groupMessageRepository.add( data ).then(()=>
           initController.getAllData(global.user)
         ).catch(function (err) {
-          return console.log('alll' ,err);
+          return console.log('聊天记录存储错误' ,err);
         });
         
       }
@@ -332,13 +334,15 @@ const receiveGroupMessage = async(roomId,data, userId) => {
 
     //接收到索取旧消息的消息，在数据库中查找并发送旧消息
     if(data.messageType == 'requireOldMessage'){
+      //如果索取者是索取某条消息
       if( data.content.key == 'hash'){
         let preMessage = await global.db.groupMessageRepository.where({hash: data.content.hash}).first() //通过哈希值获取已经在聊天记录数据库的消息
         global.roomObjects[data.groupId].sendMessage(preMessage, global.roomObjects[roomId].userIdsToIds[data.userId]) //该记录已经包含哈希值以及消息创建者的签名，直接通过webRTC房间注册的消息发送函数发送
       }
+      //如果索取者是索取某段时间的消息
       if( data.content.key == 'time'){
-        let oldMessages = await global.db.groupMessageRepository.where('time').aboveOrEqual( data.content.time).toArray() //通过哈希值获取已经在聊天记录数据库的消息
-        console.log(data.content.time , oldMessages)
+        let oldMessages = await global.db.groupMessageRepository.where('time').between( data.content.time[0],data.content.time[1]).toArray() //通过哈希值获取已经在聊天记录数据库的消息
+        console.log('准备发送 ' , data.content.time , ' 之间的消息： ' , oldMessages)
         for(let index in oldMessages){
           global.roomObjects[data.groupId].sendMessage(oldMessages[index], global.roomObjects[roomId].userIdsToIds[data.userId]) //该记录已经包含哈希值以及消息创建者的签名，直接通过webRTC房间注册的消息发送函数发送
         }
@@ -348,7 +352,9 @@ const receiveGroupMessage = async(roomId,data, userId) => {
   
 }
 
+//async getGroupMessages(groupId: string, current: number, pageSize: number) {
 const getGroupMessages = async(groupId, current, pageSize) =>{
+  console.log(groupId, current, pageSize)
   // let groupMessage = await getRepository(GroupMessage)
   //   .createQueryBuilder("groupMessage")
   //   .orderBy("groupMessage.time", "DESC")
@@ -357,20 +363,17 @@ const getGroupMessages = async(groupId, current, pageSize) =>{
   //   .take(pageSize)
   //   .getMany();
   //   groupMessage = groupMessage.reverse();
-
-  
-
-  // let groupMessage = await groupMessageRepository(GroupMessage)
-  //   .createQueryBuilder("groupMessage")
-  //   .orderBy("groupMessage.time", "DESC")
-  //   .where("groupMessage.groupId = :id", { id: groupId })
-  //   .skip(current)
-  //   .take(pageSize)
-  //   .getMany();
-  //   groupMessage = groupMessage.reverse();
+  let groupMessage = await global.db.groupMessageRepository
+  .where('[groupId+time]').between(
+    [ groupId, Dexie.minKey],
+    [ groupId, Dexie.maxKey])
+  .reverse().offset(current).limit(pageSize).toArray()
+  groupMessage = groupMessage.reverse();
 
   //   const userGather: {[key: string]: User} = {};
+    const userGather= {};
   //   let userArr: FriendDto[] = [];
+    let userArr = [];
   //   for(const message of groupMessage) {
   //     if(!userGather[message.userId]) {
   //       userGather[message.userId] = await getRepository(User)
@@ -379,8 +382,16 @@ const getGroupMessages = async(groupId, current, pageSize) =>{
   //       .getOne();
   //     }
   //   }
-  //   userArr = Object.values(userGather);
-  //   return {msg: '', data: { messageArr: groupMessage, userArr: userArr }};
+      for(const message of groupMessage) {
+      if(!userGather[message.userId]) {
+        console.log(message)
+        userGather[message.userId] = await global.db.userRepository
+        .where({ userId: message.userId })
+        .first()
+      }
+    }
+    userArr = Object.values(userGather);
+    return {msg: '', data: { messageArr: groupMessage, userArr: userArr }};
 }
 
 
@@ -402,8 +413,8 @@ const sendGroupMessage = async(data) => {
     }
     data.time = Date.now() //new Date.valueOf(); // 使用服务端时间
     
-    console.log(global.user)
-    console.log(global.roomObjects)
+    //console.log(global.user)
+    //console.log(global.roomObjects)
     const group = await global.db.groupRepository.where({groupId: data.groupId}).first()
     
     data.preHash = group.lastMessage
@@ -411,9 +422,9 @@ const sendGroupMessage = async(data) => {
     
     let signatureObject = global.web3.eth.accounts.sign(data.hash, global.user.privateKey);  
     data.signature = signatureObject.signature
-    console.log(data)
+    //console.log(data)
     if(data.messageType === 'text'){
-      await global.db.groupMessageRepository.add(data); //保存到聊天记录数据库
+      global.db.groupMessageRepository.add(data); //保存到聊天记录数据库
       console.log('pp')
       await global.db.groupRepository.update(data.groupId, {lastMessage: data.hash}) //更新自己最后一条消息的id
       console.log('pp')
@@ -423,7 +434,7 @@ const sendGroupMessage = async(data) => {
     }
 
     if(data.messageType == 'requireOldMessage'){
-      console.log('1053', data)
+      console.log('发送旧消息请求', data)
       global.roomObjects[data.groupId].sendMessage(data) //向其他群成员索取旧消息的消息，不需要入库，直接通过webRTC房间注册的发送函数发送消息
     }
   } 
@@ -490,7 +501,7 @@ const roomInit = async(roomId) => {
       // tell other peers currently in the room our name
       sendName(global.user.username + ':' + global.user.userId)    
       // tell newcomers
-      room.onPeerJoin(id => sendName(global.user.username + ':' +  global.user.userId, id))    
+      //room.onPeerJoin(id => sendName(global.user.username + ':' +  global.user.userId, id))    
       // listen for peers naming themselves
       getName(function(name, id) {
         console.log('webRtc getName ' + name + ' from ' + id)
@@ -500,46 +511,64 @@ const roomInit = async(roomId) => {
         global.roomObjects[roomId].userIdsToIds[senderUserId] = id
         global.db.userRepository.add({userId :  senderUserId , username : name.split(':')[0]})
       } )
-        
+
+      
       //查询下线时的新消息
       global.db.groupMessageRepository.where('[groupId+time]').between(
         [ roomId, Dexie.minKey],
         [ roomId, Dexie.maxKey])
       .reverse().first().then(function(item){
-        console.log('855',item.time)
+        console.log('聊天记录中最后一条消息的时间',item.time)
         global.roomObjects[roomId].offline = [item.time,  Date.now()]
-        console.log('855',global.iterations)
+        console.log('进行轮询的次数：',global.iterations)
         if( global.iterations ==0){
-          global.interval = setInterval(pollOldMessages,2000)
+          //global.interval = setInterval(pollOldMessages,2000)
+          //console.log('1205',global.interval)
+        }
+        //pollOldMessages()//setInterval(pollOldMessages,5000);
+      }).catch(err => console.log(err))  
+      
+
+      room.onPeerJoin(function(id){
+        sendName(global.user.username + ':' +  global.user.userId, id)
+        if( global.iterations ==0){
+          //pollOldMessages
+          setTimeout(pollOldMessages,10)
+          //global.interval = setInterval(pollOldMessages,2000)
           console.log('1205',global.interval)
         }
-        pollOldMessages()//setInterval(pollOldMessages,5000);
-        
-      }).catch(err => console.log(err))
+      })
+
+      
       
         
 
 }
 
+const requireOldMessage = () =>{
+
+}
+
 const pollOldMessages= () =>{
   global.iterations ++
-  console.log(Object.values(global.roomObjects))
+  //console.log(Object.values(global.roomObjects))
   for(let index in global.roomObjects){
     let room = global.roomObjects[index]
-    console.log('1055', room, room.offline)
+    //console.log('1055', room, room.offline)
     if(room.offline){
           sendGroupMessage(
             {
               userId: global.user.userId,
               groupId: room.groupId,
-              content: {key: 'time', time: room.offline[0]},//从收到最后一条消息的时间开始查询
+              content: {key: 'time', time: room.offline},//从收到最后一条消息的时间开始查询
               messageType: 'requireOldMessage',
             })
           }
     }
     console.log('1205',global.interval)
-  if(global.iterations> 3){
+  if(global.iterations> 2){
     clearInterval(global.interval)
+    global.iterations = 0
     console.log('1205',global.interval)
   }
        

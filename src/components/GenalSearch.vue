@@ -87,6 +87,8 @@ import { namespace } from 'vuex-class';
 import { isContainStr, processReturn } from '@/utils/common.ts';
 import * as apis from '@/api/apis';
 import { nameVerify } from '@/utils/common';
+// @ts-ignore
+import groupApi from './../api/modules/group'
 const chatModule = namespace('chat');
 
 @Component
@@ -145,6 +147,8 @@ export default class GenalSearch extends Vue {
     if (!value) {
       return;
     }
+    console.log(value)
+    this.groupId = value
     let res = await apis.getGroupsByName(value);
     let data = processReturn(res);
     this.groupArr = data;
@@ -191,6 +195,7 @@ export default class GenalSearch extends Vue {
 
   joinGroup() {
     this.visibleJoinGroup = false;
+    //groupApi.serverJoinGroup(this.groupId)
     this.$emit('joinGroup', this.groupId);
     this.groupId = '';
   }

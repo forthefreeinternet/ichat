@@ -1,5 +1,5 @@
-import request from '@/utils/request'
-import { API } from './../index'
+//import request from '@/utils/request'
+//import { API } from './../index'
 const userController = require('./../../controller/user').default
 
 export default {
@@ -37,5 +37,9 @@ export default {
   },
   editFeznu(data) { // 编辑某项分组名称
     return request.post(`${API}/user/editfenzu`, data)
+  },
+  async setUserAvatar(data){
+    let newUser = await userController.setUserAvatar(data)
+    return { msg: '修改头像成功', data: newUser}
   }
 }

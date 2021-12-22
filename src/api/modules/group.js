@@ -82,8 +82,8 @@ store.dispatch('chat/joinGroupSocket' , data)
     }})
   },
 
-  async getGroupMessages(groupId, current, pageSize){
-    let data = await groupController.getGroupMessages(groupId, current, pageSize)
+  async getGroupMessages(payload){
+    let data = await groupController.getGroupMessages(payload.groupId, payload.current, payload.pageSize)
     return data
     
   },

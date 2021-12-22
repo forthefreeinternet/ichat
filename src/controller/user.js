@@ -396,6 +396,67 @@ const register = async(req, res) => {
 //   })
 }
 
+const setUserAvatar = (data) =>{
+  
+  console.log(data)
+  if(window.FileReader) {
+  var reader = new FileReader();
+}
+else {
+  alert("当前浏览器不支持!");
+}
+
+return new Promise((resolve, reject) => {
+  try {
+    //var reader = new FileReader()
+    if (data) {
+      reader.readAsDataURL(data)
+      reader.onload = function(){
+        console.log(this.result)
+        global.user.avatar = this.result
+        resolve( global.user)
+      }
+      // reader.onloadend = function(e) {
+      //   resolve(reader.result)
+      // }
+      reader.onerror = function() {
+        reject("load file error")
+      }
+      
+    } else {
+      reject("file not found")
+    }
+  } catch (e) {
+    reject("file not found")
+  }
+})
+
+reader.readAsDataURL(data);
+reader.onload = function(){
+console.log(this.result)
+global.user.avatar = this.result
+return global.user
+//document.getElementById("file_img").src = this.result;
+}
+// var img
+// if (!!this.avatar) {
+//             //读取本地文件
+//             var reader = new FileReader();
+//             reader.readAsArrayBuffer(this.avatar);//ArrayBuffer对象
+//             reader.onload = function (e) {
+//                 //读取完毕后输出结果
+//                 console.log(e.target.result);
+//                 img = new Blob([new Int8Array(e.target.result, 0, 读取字节长度)],
+//                    { type: "image/png" }); //type类型可自定义
+//             }
+//         }
+      
+// var url = window.URL.createObjectURL(img);
+// console.log(url)
+
+
+}
+
 
 
 
@@ -737,5 +798,6 @@ export default {
   modifyBeizhu,
   updateUserOnlineTime,
   updateUserInfo,
-  updateUserPwd
+  updateUserPwd,
+  setUserAvatar
 }
