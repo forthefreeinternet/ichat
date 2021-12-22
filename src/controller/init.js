@@ -234,6 +234,8 @@ const dbInit = async(userId) => {
   });
   var web3 = new Web3(new Web3.providers.WebsocketProvider("wss://rinkeby.infura.io/ws/v3/a898a2d231e647c7928dc457c6d441c8"));
   global.web3 = web3
+  let user = await global.db.userRepository.where({userId: global.user.userId})
+  global.user.avater = user.avater
 }
 
 const dataInit = async() => {

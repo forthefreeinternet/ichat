@@ -66,12 +66,12 @@ for (let i = 0; i < serviceMessage.length; i++)
 }
 }
 const login = async(req) => {
-  let [ account, password] = [req.username, req.password]
+  let [ username, password] = [req.username, req.password]
   const nowTimestamp = Date.now()
   let privateKey
-  let localAccount = JSON.parse(localStorage.getItem(account));//the string typed in is the key mapped to a decrypted account,
-  localAccount = JSON.parse(await localforage.getItem(account));
-  
+  let localAccount = JSON.parse(localStorage.getItem(username));//the string typed in is the key mapped to a decrypted account,
+  localAccount = JSON.parse(await localforage.getItem(username));
+  let account
   var web3 = new Web3(new Web3.providers.WebsocketProvider("wss://rinkeby.infura.io/ws/v3/a898a2d231e647c7928dc457c6d441c8"));
   try{
     account = web3.eth.accounts.decrypt(localAccount.secPrivateKey, password);
@@ -107,12 +107,15 @@ const login = async(req) => {
   const userId = doc._id
   const token = 0//createToken(userId)
   console.log(localAccount)
-  JSON.stringify(global.user)
+
+  // let userJSON = localStorage.getItem('user')
+  let storageAccount = JSON.parse(localStorage.getItem(username))
+
   global.user = {
     username: localAccount.accountName,
     userId : localAccount.accountAddress,       
     password: password,
-    avatar: `api/avatar/avatar(${Math.round(Math.random()*19 +1)}).png`,
+    avatar: storageAccount.avatar, // `api/avatar/avatar(${Math.round(Math.random()*19 +1)}).png`,
     role: 'user',
     tag: '',
     privateKey: privateKey
@@ -120,7 +123,7 @@ const login = async(req) => {
     //publicId: account2.address,
   }//user,
 
-
+console.log(storageAccount.avatar)
   return {
     msg:'登录成功',
     data: {
@@ -128,7 +131,7 @@ const login = async(req) => {
         username: localAccount.accountName,
         userId : localAccount.accountAddress,       
         password: password,
-        avatar: `api/avatar/avatar(${Math.round(Math.random()*19 +1)}).png`,
+        avatar:  storageAccount.avatar, //`api/avatar/avatar(${Math.round(Math.random()*19 +1)}).png`,
         role: 'user',
         tag: '',
         //createTime: time,
@@ -290,7 +293,7 @@ const register = async(req, res) => {
   let secPrivateKey = web3.eth.accounts.encrypt(account.privateKey, password)
   //localStorage.setItem($('#js_input').val(), JSON.stringify(this.$web3.eth.accounts.encrypt(account.privateKey, $('#js_input_password').val())));
   let info = {'accountName': accountName, 'accountAddress': accountAddress , 'secPrivateKey': secPrivateKey , 
-  'contactList': {}, role : 'user' , publicId: account2.address , group: [{groupId: '0'}]}
+  'contactList': {}, role : 'user' , publicId: account2.address , group: [{groupId: '0'}], avatar: ''}
   
   global.user = {
     username: accountName,
@@ -413,6 +416,16 @@ return new Promise((resolve, reject) => {
       reader.readAsDataURL(data)
       reader.onload = function(){
         console.log(this.result)
+        global.db.userRepository.where({userId: global.user.userId}).modify({avatar: this.result})
+        console.log(global.user.userId)
+        let info = JSON.parse(localStorage.getItem(global.user.username))
+        console.log(localStorage.getItem(global.user.username))
+        info.avatar = this.result
+        console.log(info)
+        localStorage.setItem(global.user.username , JSON.stringify(info))
+        // let info = JSON.parse(localforage.getItem(global.user.userId , JSON.stringify(info)) )
+        // info.avatar = this.result
+        // localforage.setItem(global.user.userId , JSON.stringify(info))
         global.user.avatar = this.result
         resolve( global.user)
       }

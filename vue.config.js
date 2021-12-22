@@ -84,7 +84,10 @@ module.exports = {
     },
   },
   // webSocket本身不存在跨域问题，所以我们可以利用webSocket来进行非同源之间的通信。
-  publicPath: '/',
+  publicPath:  process.env.NODE_ENV === 'production'
+  ? '/my-project/'
+  : '/',
+  //'/',
   devServer: {
     port: 1997,
     proxy: {
