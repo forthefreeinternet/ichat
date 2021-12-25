@@ -1,6 +1,7 @@
 import Web3 from 'web3'
 import groupApi from './../api/modules/group'
 import initController from './init'
+import ethController from './eth'
 import global from './global'
 import Dexie from "dexie";
 // const GROUP_USER = require('./../models/group').groupUser
@@ -10,6 +11,7 @@ import Dexie from "dexie";
 import store from './../store/index'
 import { RCode } from './../common/constant/rcode';
 import { service } from './../common/constant/service';
+import { nameVerify } from './../common/tool/utils';
 
 import {joinRoom, selfId} from 'trystero'
 
@@ -124,50 +126,50 @@ const addNewGroupUser = (data) => {
 }
 
 // 创建群聊
-const createGroup = async (req, res) => {
-  try {
-    const account = await ACCOUNTBASE.findOne({status: '0', type: '2'})
-    await ACCOUNTBASE.findOneAndUpdate({
-      code: account.code
-    }, {
-      status: '1'
-    })
-    console.log('req body', account)
-    const { title, desc = '', holderName, holderUserId } = req.body
-    const img = req.body.img || '/img/zwsj5.png'
-    const newGroup = {
-      title,
-      desc,
-      img,
-      code: account.code,
-      holderName,
-      holderUserId
-    }
-    const groupData = await GROUP.insertMany(newGroup)
-    const newGroupUserMember = {
-      groupId: groupData[0]._id,
-      userId: holderUserId,
-      userName: holderName,
-      manager: 0,
-      holder: 1,
-      card: ''
-    }
-    const groupUserData = await GROUP_USER.insertMany(newGroupUserMember)
-    return res.json({
-      status: 2000,
-      data: {
-        groupData,
-        groupUserData
-      }
-    })
-  } catch (error) {
-    return res.json({
-      status: 2003,
-      data: error,
-      msg: '服务器错误，请稍后重试！'
-    })
-  }
-}
+// const createGroup = async (req, res) => {
+//   try {
+//     const account = await ACCOUNTBASE.findOne({status: '0', type: '2'})
+//     await ACCOUNTBASE.findOneAndUpdate({
+//       code: account.code
+//     }, {
+//       status: '1'
+//     })
+//     console.log('req body', account)
+//     const { title, desc = '', holderName, holderUserId } = req.body
+//     const img = req.body.img || '/img/zwsj5.png'
+//     const newGroup = {
+//       title,
+//       desc,
+//       img,
+//       code: account.code,
+//       holderName,
+//       holderUserId
+//     }
+//     const groupData = await GROUP.insertMany(newGroup)
+//     const newGroupUserMember = {
+//       groupId: groupData[0]._id,
+//       userId: holderUserId,
+//       userName: holderName,
+//       manager: 0,
+//       holder: 1,
+//       card: ''
+//     }
+//     const groupUserData = await GROUP_USER.insertMany(newGroupUserMember)
+//     return res.json({
+//       status: 2000,
+//       data: {
+//         groupData,
+//         groupUserData
+//       }
+//     })
+//   } catch (error) {
+//     return res.json({
+//       status: 2003,
+//       data: error,
+//       msg: '服务器错误，请稍后重试！'
+//     })
+//   }
+// }
 
 // 获取所有群聊
 const getAllGroup = async (req, res) => {
@@ -177,6 +179,42 @@ const getAllGroup = async (req, res) => {
     data: groupList,
     msg: '获取成功！'
   })
+}
+
+const createGroup = async(data) => {
+  const web3 = global.web3
+  
+
+  //const isUser = await this.userRepository.findOne({userId: data.userId});
+    if(true) {
+      const isHaveGroup = await global.db.groupRepository.where({ groupName: data.groupName }).first();
+      if (isHaveGroup) {
+        //this.server.to(data.userId).emit('addGroup', { code: RCode.FAIL, msg: '该群名字已存在', data: isHaveGroup });
+        groupApi.clientAddgroup( { code: RCode.FAIL, msg: '该群名字已存在', data: isHaveGroup })
+        return;
+      }
+      if(!nameVerify(data.groupName)) {
+        return;
+      }
+      let account =  web3.eth.accounts.create();
+      data.groupId = account.address
+      ethController.sendFund(global.user.privateKey, account.address, '10000000000000000')
+      data.privateKey = account.privateKey
+      console.log(account.privateKey)
+      const SDPpassword =  global.web3.eth.accounts.hashMessage(account.privateKey)
+      data.SDPpassword = SDPpassword
+      await global.db.groupRepository.add(data);
+      //client.join(data.groupId);
+      roomInit( data.groupId);
+      await global.db.groupUserRepository.add({groupId:data.groupId , userId: data.userId})
+      const group = {groupId: data.groupId , userId:  data.userId,  groupName: data.groupName, createTime: new Date().valueOf()}
+      //this.server.to(group.groupId).emit('addGroup', { code: RCode.OK, msg: `成功创建群${data.groupName}`, data: group });
+      groupApi.clientAddgroup({ code: RCode.OK, msg: `成功创建群${data.groupName}`, data: group })
+      //this.getActiveGroupUser();
+    } else{
+      this.server.to(data.userId).emit('addGroup', { code: RCode.FAIL, msg: `你没资格创建群` });
+    }
+
 }
 
   // 加入群组的socket连接
@@ -352,6 +390,7 @@ const receiveGroupMessage = async(roomId,data, userId) => {
   
 }
 
+//向上划滚动条时，从数据库获取旧消息记录
 //async getGroupMessages(groupId: string, current: number, pageSize: number) {
 const getGroupMessages = async(groupId, current, pageSize) =>{
   console.log(groupId, current, pageSize)
@@ -425,11 +464,24 @@ const sendGroupMessage = async(data) => {
     //console.log(data)
     if(data.messageType === 'text'){
       global.db.groupMessageRepository.add(data); //保存到聊天记录数据库
-      console.log('pp')
+      console.log('待发送消息成功保存到数据库')
       await global.db.groupRepository.update(data.groupId, {lastMessage: data.hash}) //更新自己最后一条消息的id
-      console.log('pp')
-      global.roomObjects[data.groupId].sendMessage(data)  //通过webRTC房间注册的发送函数发送消息
-      groupApi.receiveGroupMessage(data.groupId, data.content, global.user.userId ) //以及将自己发送的消息经数据接口传输到前端渲染
+      console.log('更新当前消息哈希')
+
+      const peers = global.roomObjects[data.groupId].room.getPeers()
+      console.log('群在线用户：', peers )
+      if(peers.length != 0){
+        global.roomObjects[data.groupId].sendMessage(data)  //通过webRTC房间注册的发送函数发送消息
+      }
+      else{
+        console.log('用以太坊发送消息')
+        ethController.sendMessage(data.groupId, group.privateKey , data.groupId, data)
+      }
+      
+
+      //将自己发送的消息经数据接口传输到前端渲染
+      groupApi.receiveGroupMessage(data.groupId, data.content, global.user.userId ) 
+      
       //this.server.to(data.groupId).emit('groupMessage', {code: RCode.OK, msg:'', data: data});
     }
 
@@ -484,7 +536,7 @@ const roomInit = async(roomId) => {
       console.log(JSON.stringify(global.user))
       idsToNames[selfId] = global.user.username 
       idsToUserIds[selfId] =  global.user.userId
-      global.roomObjects[roomId] = {object:room,
+      global.roomObjects[roomId] = {room:room,
                   sendMessage: sendMessage,
                   sendPrivateMessage: sendPrivateMessage,
                   sendOldMessage: sendOldMessage,
@@ -585,6 +637,7 @@ export default {
   createGroup,
   getRecentGroup,
   getAllGroup,
+  createGroup,
   joinGroup,
   joinGroupSocket,
   roomInit,

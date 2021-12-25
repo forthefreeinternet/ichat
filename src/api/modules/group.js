@@ -44,6 +44,14 @@ serverJoinGroup( data ){
   groupController.joinGroup(data)
 },
 
+addGroup( data ){
+  groupController.createGroup(data)
+},
+
+clientAddgroup(data){
+  store.dispatch('chat/addGroup' , data)
+},
+
 joinGroupSocket(data){
 groupController.joinGroupSocket(data)
 },

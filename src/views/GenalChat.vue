@@ -107,11 +107,16 @@ export default class GenalChat extends Vue {
 
   // 创建群组
   addGroup(groupName: string) {
-    this.socket.emit('addGroup', {
+    groupApi.addGroup({
       userId: this.user.userId,
       groupName: groupName,
       createTime: new Date().valueOf(),
-    });
+    })
+    // this.socket.emit('addGroup', {
+    //   userId: this.user.userId,
+    //   groupName: groupName,
+    //   createTime: new Date().valueOf(),
+    // });
   }
 
   // 加入群组
