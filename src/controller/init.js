@@ -99,6 +99,15 @@ const friendMap=  await db.friendRepository.where({userId: user.userId}).toArray
       return groupMessage;
     });
 
+    //有些已经下线的用户，本地用户获取到的他们的信息可能是空的
+    // for(const userId in userGather){
+    //   if(! userGather[userId]){
+    //     delete userGather[userId]
+    //     console.log(userGather)
+    //   }
+    // }
+    console.log(userGather)
+
 //     const friendPromise = friendMap.map(async (item) => {
 //       return await this.userRepository.findOne({
 //         where:{userId: item.friendId}
@@ -175,6 +184,8 @@ const groupsMessage = await Promise.all(groupMessagePromise);
     });
     friendArr = friends;
     userArr = [...Object.values(userGather), ...friendArr];
+    userArr = userArr.filter(function(e){return e}); 
+    console.log('刷新时，从后台获取的用户信息：',userArr)
 
 //     this.server.to(user.userId).emit('chatData', {code:RCode.OK, msg: '获取聊天数据成功', data: {
 //       groupData: groupArr,
@@ -226,11 +237,12 @@ const dbInit = async(userId) => {
   global.db = db
   db.version(1).stores({
     groupUserRepository: "++_id, groupId, userId",
-    groupMessageRepository: "++_id, userId, groupId, content, messageType, time, preHash, hash, signature, [groupId+time]",
-    groupRepository: "groupId, userId, groupName, createTime, lastMessage",
-    friendRepository: "++_id, friendId, userId",
-    userRepository: "userId, username",
-    friendMessageRepository: "++_id, friendId, userId, content, time, [userId+friendId+time]"
+    groupMessageRepository: "++_id, userId, groupId, content, messageType, time, preHash, &hash, signature, [groupId+time]",
+    groupRepository: "&groupId, userId, groupName, createTime, lastMessage",
+    friendRepository: "++_id, friendId, &userId",
+    userRepository: "&userId, username",
+    friendMessageRepository: "++_id, friendId, userId, content, time, [userId+friendId+time]",
+    groupBlockRepository: " &hash, groupId, messageRoot, time, preHash,  number, [groupId+time]",
   });
   var web3 = new Web3(new Web3.providers.WebsocketProvider("wss://rinkeby.infura.io/ws/v3/a898a2d231e647c7928dc457c6d441c8"));
   global.web3 = web3

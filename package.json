@@ -17,6 +17,7 @@
     "js-cookie": "^2.2.1",
     "less-loader": "^6.1.2",
     "localforage": "^1.10.0",
+    "merkletreejs": "^0.2.27",
     "moment": "^2.27.0",
     "sass": "^1.26.9",
     "sass-loader": "^8.0.2",

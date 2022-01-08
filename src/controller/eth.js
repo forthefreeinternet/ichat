@@ -23,11 +23,11 @@ netContract.options.address = add;
 var account = {}
 var gasEstimate = 0
 const sendMessage= async(sender, privateKey, receiver, message) => {
-    console.log("ethSendMessage");
+    console.log("ethSendMessage", message);
     //let mess = getTime() +  $('#searchInput').val();
     //console.log(mess);
     //pushMessage(receiver , mess , 2);
-    
+    message = JSON.stringify(message)
     if(sender != ""){
         account.privateKey = privateKey
         gasEstimate = await netContract.methods.sendMessage(sender , message ).estimateGas({from:sender});
@@ -48,12 +48,12 @@ const sendFund= async(privateKey, receiver, value) => {
     }, privateKey)
     .then(sendTx)
 }
-    
-    
+
 
   
 
   function signTx(payload){
+    console.log("tx", payload);
     let tx = payload.params[0];
     tx.gas = gasEstimate;
     tx['chain'] = 'rinkeby';
@@ -68,8 +68,17 @@ const sendFund= async(privateKey, receiver, value) => {
     web3.eth.sendSignedTransaction(signedTransactionData ).then(res => console.log(res));
   }
 
+  const acquireMessage = async( sender , receiver, index ) => {
+    let mess = await netContract.methods.messages( sender , receiver , index).call();
+    return mess
+    //pushMessage(addr ,mess , 0);
+    
+    
+}
+
 
 export default{
     sendMessage,
-    sendFund
+    sendFund,
+    acquireMessage
 }
