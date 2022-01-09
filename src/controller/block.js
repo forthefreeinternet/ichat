@@ -1,7 +1,7 @@
 import { MerkleTree } from 'merkletreejs';
 import groupApi from './../api/modules/group'
 import initController from './init'
-import ethController from './eth'
+import groupController from './group'
 import global from './global'
 import Dexie from "dexie";
 import SHA256  from 'crypto-js/sha256'
@@ -33,6 +33,13 @@ function queue(id){
 
 }
 
+const generateRoot = (flowers) => {
+    let leaves = flowers.map(flower => flower.hash)
+    let tree = new MerkleTree(leaves, SHA256, {sortLeaves:true})
+    let root = tree.getRoot().toString('hex')
+    return root
+}
+
 const updateChain = async( groupId, start) => {
     const group = await global.db.groupRepository.where({groupId: groupId}).first();
      let lastBlock 
@@ -50,19 +57,8 @@ const updateChain = async( groupId, start) => {
      }
 
      if( !lastBlock ){
-        const hash = global.web3.eth.accounts.hashMessage(groupId + groupId + 0 + group.createTime)
-        const newBlock = {
-            groupId: groupId,
-            preHash: groupId, 
-            time: group.createTime,
-            //messageRoot: root,
-            number: 0,
-            hash: hash,
-            //messages: oldMessages
-        }
-        //更新
-        global.db.groupBlockRepository.put(newBlock , 'number')
-        lastBlock = newBlock
+        //没有保存创世块，应该先向别处获取
+        return
      }
 
      if(true){
@@ -73,16 +69,15 @@ const updateChain = async( groupId, start) => {
             let newTime = time+ blockTime
             let oldMessages = await global.db.groupMessageRepository.where(['groupId' , 'time']).between( [groupId, time],[groupId, newTime]).toArray() //通过哈希值获取已经在聊天记录数据库的消息
             if (oldMessages.length > 0){
-                let leaves = oldMessages.map(m => m.hash)
-                let tree = new MerkleTree(leaves, SHA256, {sortLeaves:true})
-                let root = tree.getRoot().toString('hex')
+                
+                let messageRoot = generateRoot(oldMessages)  
                 let newNumber = preBlock.number + 1
-                const hash = global.web3.eth.accounts.hashMessage(groupId + preBlock.hash + newNumber + newTime + root)
+                const hash = global.web3.eth.accounts.hashMessage(groupId + preBlock.hash + newNumber + newTime + messageRoot)
                 const newBlock = {
                     groupId: groupId,
                     preHash: preBlock.hash, 
                     time: newTime,
-                    messageRoot: root,
+                    messageRoot: messageRoot,
                     hash: hash,
                     number: newNumber,
                     messages: oldMessages
@@ -133,13 +128,13 @@ const localRecentBlocks = async(groupId, skeletonCount, skeletonSkip, endTime) =
 
 }
 
-const fetchRecentBlocks = async(groupId, peerId) => {
+const fetchRecentSkeleton = async(groupId, peerId, currentBlock, backDay) => {
     
     global.roomObjects[groupId].syncRequest({
-        messageType: 'fetchRecentBlocks',
+        messageType: 'fetchRecentSkeleton',
         content: {
-            currentBlock: lastBlock,
-            requestSkeletonCount: 7, //一周
+            currentBlock: currentBlock,
+            requestSkeletonCount: backDay, //一周
             requestSkeletonSkip: 86400*1000, //一天
         }        
     }, 
@@ -166,18 +161,122 @@ const fetchAllBlocks = async(groupId, peerId) => {
     })
 }
 
+const fetchAncestorNeighbors = async(groupId, peerId, date) => {
+    
+    global.roomObjects[groupId].syncRequest({
+        messageType: 'fetchAncestorNeighbors',
+        content: {
+            date: date
+        }        
+    }, 
+    peerId)
+
+    return new Promise(function(resolve, reject){
+        syncTasks[groupId].deliverAncestorNeighbors[peerId] = resolve
+    })
+    
+      
+}
+
+const generateGenesisBlock = async(adminAccount, groupAccount, groupInfo, creator, message) => {
+
+    //构建状态，其中包含以群id为索引的群信息，以及以创建者用户id为索引的创建者信息，并标明身份
+    let states = {}
+    states[groupAccount.account] = groupInfo
+    creator.status = 'creator'
+    states[creator.userId] = creator
+    const stateRoot = generateRoot(states)
+    //创世块中只有一条消息，内容为任命自己为群主
+    let messages = [message]
+    const messageRoot = generateRoot(states)
+
+
+    const hash = global.web3.eth.accounts.hashMessage('' + groupAccount.account + 0 + groupInfo.createTime + stateRoot)
+    //用管理账户对hash值签名
+    const signatureObject = global.web3.eth.accounts.sign(hash,adminAccount.privateKey);
+    const signature = signatureObject.signature
+    const newBlock = {
+        groupId: groupAccount.account,
+        preHash: '', 
+        time: groupInfo.createTime,
+        //messageRoot: root,
+        number: 0,
+        hash: hash,
+        stateRoot: stateRoot,
+        states: states,
+        signature: signature,
+        messageRoot: messageRoot,
+        messages: messages
+    }
+    
+    //保存创世块
+    global.db.groupBlockRepository.put(newBlock , 'number')
+}
+
 const sync = async(groupId, peerId) => {
+
+    //获取本地当前块
     let currentBlock = await localCurrentBlock(groupId)
+
     if(currentBlock){
-        let recentBlocks = await fetchRecentBlocks(groupId, peerId)
-        console.log(recentBlocks)
-        let lastTime = recentBlocks.map(async (block) => {
-            return global.groupBlockRepository.where()
+        //如果有当前块，查找最近七天的区块骨架
+        let backWeeks = 1
+
+        let ancestorDate = []
+        for(; backWeeks < 5 ;backWeeks ++){
+                
+            let recentBlocks = await fetchRecentSkeleton(groupId, peerId, currentBlock, 7*backWeeks)
+            console.log(recentBlocks)
+            let blocksPromise = recentBlocks.map(async (block) => {
+                return global.groupBlockRepository.where({hash: block.hash}).first()
+            })
+            let localBlocks = await Promise.all(blocksPromise);
+
+            
+            if (localBlocks[0]){
+                //已经涵盖了共同祖先
+                for (let index = 1; index < localBlocks.length; index ++){
+                    if (localBlocks[index]){
+                        //这一块已经保存了
+
+                        if (localBlocks[index].number < localBlocks[index-1].number){
+                            //返回的区块应该是递增的，如果不是，则返回
+                            return
+                        }  
+                        ancestorDate[0] = localBlocks[index].time   
+                    }
+                    else{
+                        //这一块没有保存
+                        ancestorDate[1] = localBlocks[index].time //此时已找到共同祖先块的日期上下限
+                    }
+                }
+                break
+            }
+            //没有找到共同祖先，继续往前查找
+        }
+        let neighbors = await fetchAncestorNeighbors(groupId, peerId, ancestorDate)
+        console.log(neighbors)
+        let neighborsPromise = neighbors.map(async (block) => {
+            return global.groupBlockRepository.where({hash: block.hash}).first()
         })
+        let localNeighbors = await Promise.all(neighborsPromise);
 
     }
+
+    //没有找到当前块，获取所有的区块
     else{
         let blocks = await fetchAllBlocks(groupId, peerId)
+        for (let block of blocks){
+            //verify
+            if (block.messages){
+                for (let message of block.messages){
+                    //verify
+                    groupController.receiveGroupMessage(groupId, message, peerId)
+
+                }
+            }
+            
+        }
     }
     
     
@@ -204,8 +303,8 @@ const deliverRecentBlocksRequest = async(groupId, request, peerId) => {
             }
             else{
                 let recentBlocks = await localRecentBlocks(groupId, 
-                    request.content.requestSkeletonCount, 
-                    request.content.requestSkeletonSkip,
+                    request.requestSkeletonCount, 
+                    request.requestSkeletonSkip,
                     ((request.currentBlock.time < currentBlock.time) ? request.currentBlock.time : currentBlock.time))
                 global.roomObjects[groupId].syncRequest({
                     messageType: 'recentBlocks',
@@ -267,5 +366,6 @@ export default{
     localCurrentBlock,
     sync,
     deliverRecentBlocksRequest,
-    deliverAllBlocksRequest
+    deliverAllBlocksRequest,
+    generateGenesisBlock
 }

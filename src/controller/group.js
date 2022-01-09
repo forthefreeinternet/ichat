@@ -188,6 +188,8 @@ const createGroup = async(data) => {
 
   //const isUser = await this.userRepository.findOne({userId: data.userId});
     if(true) {
+
+      //验证
       const isHaveGroup = await global.db.groupRepository.where({ groupName: data.groupName }).first();
       if (isHaveGroup) {
         //this.server.to(data.userId).emit('addGroup', { code: RCode.FAIL, msg: '该群名字已存在', data: isHaveGroup });
@@ -197,18 +199,48 @@ const createGroup = async(data) => {
       if(!nameVerify(data.groupName)) {
         return;
       }
-      let account =  web3.eth.accounts.create();
+
+      //生成管理账户，再用管理账户生成群账户
+      let adminAccount = web3.eth.accounts.create();
+      let account =  web3.eth.accounts.create(adminAccount.address);
       data.groupId = account.address
-      ethController.sendFund(global.user.privateKey, account.address, '10000000000000000')
+      //为群账户充值
+      //ethController.sendFund(global.user.privateKey, account.address, '10000000000000000')
       data.privateKey = account.privateKey
       console.log(account.privateKey)
+      //设置peer信息的密码
       const SDPpassword =  global.web3.eth.accounts.hashMessage(account.privateKey)
       data.SDPpassword = SDPpassword
-      await global.db.groupRepository.add(data);
+
+      //建立webRTC房间
       //client.join(data.groupId);
       roomInit( data.groupId);
-      await global.db.groupUserRepository.add({groupId:data.groupId , userId: data.userId})
+
+      //初始化群信息、群主信息、第一条消息
       const group = {groupId: data.groupId , userId:  data.userId,  groupName: data.groupName, createTime: new Date().valueOf()}
+      const creator = {username: global.user.username,
+                       userId: global.user.userId,
+                       avatar: global.user.avatar}
+      let firstMessage = {} 
+      firstMessage.messageType = 'admin'           
+      firstMessage.time = group.createTime -1 
+      firstMessage.content = {
+        type: 'setOwner',
+        userId: data.userId
+      }
+      firstMessage.preHash = ''
+      firstMessage.hash = global.web3.eth.accounts.hashMessage(firstMessage.preHash + firstMessage.groupId + firstMessage.content + firstMessage.time)
+      let signatureObject = global.web3.eth.accounts.sign(firstMessage.hash, global.user.privateKey);  
+      firstMessage.signature = signatureObject.signature
+    
+
+      //保存群聊信息、群成员信息、群创世块
+      global.db.groupRepository.add(data);
+      global.db.groupUserRepository.add({groupId:data.groupId , userId: data.userId})
+      blockController.generateGenesisBlock(adminAccount, account, group, creator, firstMessage)
+
+      //前端显示
+      
       //this.server.to(group.groupId).emit('addGroup', { code: RCode.OK, msg: `成功创建群${data.groupName}`, data: group });
       groupApi.clientAddgroup({ code: RCode.OK, msg: `成功创建群${data.groupName}`, data: group })
       //this.getActiveGroupUser();
@@ -266,12 +298,12 @@ const joinGroup = async(data) => {
     
     if (group && user) {
       if (!userGroup) {
-        console.log('end3')
+        //console.log('end3')
         data.groupId = group.groupId;
         console.log({groupId:data.groupId , userId: data.userId})
         const test = await global.db.groupUserRepository.toArray()
         console.log(test)
-        await global.db.groupRepository.add({groupId:data.groupId, groupName: data.groupName, createTime: Date.now()});
+        global.db.groupRepository.add({groupId:data.groupId, groupName: data.groupName, createTime: Date.now()});
         userGroup = await global.db.groupUserRepository.add({groupId:data.groupId , userId: data.userId});
         console.log('数据库保存群用户信息：', userGroup)
       }
@@ -304,7 +336,7 @@ const joinGroup = async(data) => {
 //接收同步请求
 const deliverGroupSyncRequest = async(groupId, data, peerId) => {
   switch(data.messageType){
-    case 'fetchRecentBlocks':
+    case 'fetchRecentSkeleton':
       blockController.deliverRecentBlocksRequest(groupId, data.content, peerId)
       break
     case 'fetchAllBlocks':
@@ -482,6 +514,7 @@ const sendGroupMessage = async(data) => {
       stream.write(data.content);
       data.content = randomName;
     }
+    if (!data.time)
     data.time = Date.now() //new Date.valueOf(); // 使用服务端时间
     
     //console.log(global.user)
@@ -523,6 +556,12 @@ const sendGroupMessage = async(data) => {
     if(data.messageType == 'requireOldMessage'){
       console.log('发送旧消息请求', data)
       global.roomObjects[data.groupId].sendMessage(data) //向其他群成员索取旧消息的消息，不需要入库，直接通过webRTC房间注册的发送函数发送消息
+    }
+
+    if(data.messageType == 'admin'){
+      console.log('发送管理信息', data)
+      global.roomObjects[data.groupId].sendMessage(data) //向其他群成员索取旧消息的消息，不需要入库，直接通过webRTC房间注册的发送函数发送消息
+      return data
     }
   } 
 }
@@ -694,7 +733,8 @@ const roomInit = async(roomId) => {
 
       blockController.syncTasks[roomId] = {
         deliverRecentBlocks:{},
-        deliverAllBlocks: {}
+        deliverAllBlocks: {},
+        deliverAncestorNeighbors: {}
       }
       room.onPeerJoin(function(id){
         sendName(global.user.username + ':' +  global.user.userId, id)
@@ -708,7 +748,7 @@ const roomInit = async(roomId) => {
           //setTimeout(pollOldMessagesAll,10)
           //global.interval = setInterval(pollOldMessages,2000)
           console.log(id, '加入了群聊：', roomId)
-          blockController.updateChain(roomId)
+          //blockController.updateChain(roomId)
         }
       })
 
