@@ -10,7 +10,8 @@
         @close="toggleGroupUser"
         :wrap-style="{ position: 'absolute' }"
       >
-        <div class="active-content" v-if="activeGroupUser[activeRoom.groupId]">
+        <div class="active-content" v-if="true"> 
+          <!-- activeGroupUser[activeRoom.groupId] -->
           <div class="actiev-content-title">群聊管理</div>
           <div class="active-content-sum">在线人数: {{ activeNum }}</div>
           <div class="active-content-users">
@@ -19,6 +20,8 @@
               {{ data.username }}
             </div>
           </div>
+          <div class="primary">{{activeRoom.groupName + ':' + activeRoom.groupId}}</div>
+          <a-button type="primary" v-clipboard:copy="activeRoom.groupName + ':' + activeRoom.groupId" v-clipboard:success="onCopy">复制群链接</a-button>
           <a-button type="danger" class="active-content-out" @click="exitGroup">退出</a-button>
         </div>
       </a-drawer>
@@ -62,7 +65,10 @@ export default class GenalActive extends Vue {
   }
 
   get activeNum() {
+    if (this.activeGroupUser[this.activeRoom.groupId])
     return Object.keys(this.activeGroupUser[this.activeRoom.groupId]).length;
+    else
+    return 0
   }
 
   toggleGroupUser() {
@@ -85,6 +91,10 @@ export default class GenalActive extends Vue {
       userId: this.user.userId,
       friendId: this.activeRoom.userId,
     });
+  }
+
+  onCopy(e) {
+    this.$message.success(`复制成功`)
   }
 }
 </script>

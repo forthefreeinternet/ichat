@@ -242,7 +242,7 @@ const dbInit = async(userId) => {
     friendRepository: "++_id, friendId, &userId",
     userRepository: "&userId, username",
     friendMessageRepository: "++_id, friendId, userId, content, time, [userId+friendId+time]",
-    groupBlockRepository: " &hash, groupId, messageRoot, time, preHash,  number, [groupId+time]",
+    groupBlockRepository: " [groupId+number], &hash, groupId, messageRoot, time, preHash,  number, [groupId+time]",//同一群、同一高度只能有一块
   });
   var web3 = new Web3(new Web3.providers.WebsocketProvider("wss://rinkeby.infura.io/ws/v3/a898a2d231e647c7928dc457c6d441c8"));
   global.web3 = web3

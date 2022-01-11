@@ -60,6 +60,10 @@ clientJoinGroupSocket(data){
 store.dispatch('chat/joinGroupSocket' , data)
 },
 
+activeGroupUser(data){
+  store.dispatch('chat/activeGroupUser' , data)
+},
+
 
   /**
    * ------------------华丽分界线，以下是和群组消息有关的API------------------------

@@ -5,6 +5,7 @@ import groupController from './group'
 import global from './global'
 import Dexie from "dexie";
 import SHA256  from 'crypto-js/sha256'
+import EthCrypto from 'eth-crypto';
 // const GROUP_USER = require('./../models/group').groupUser
 // const GROUP = require('./../models/group').group
 // const ACCOUNTBASE = require('./../models/accountpool')
@@ -33,9 +34,16 @@ function queue(id){
 
 }
 
-const generateRoot = (flowers) => {
-    let leaves = flowers.map(flower => flower.hash)
-    let tree = new MerkleTree(leaves, SHA256, {sortLeaves:true})
+const generateRoot = (flowers, hashLeaves = false) => {
+    
+    let tree 
+    if (hashLeaves){
+        tree = new MerkleTree(flowers, SHA256, {sortLeaves:true, hashLeaves:true})
+    }else{
+        let leaves = flowers.map(flower => flower.hash)
+        tree = new MerkleTree(leaves, SHA256, {sortLeaves:true})
+    }
+    
     let root = tree.getRoot().toString('hex')
     return root
 }
@@ -68,6 +76,7 @@ const updateChain = async( groupId, start) => {
          for ( ;time < currentTime - blockTime; time = time + blockTime){
             let newTime = time+ blockTime
             let oldMessages = await global.db.groupMessageRepository.where(['groupId' , 'time']).between( [groupId, time],[groupId, newTime]).toArray() //通过哈希值获取已经在聊天记录数据库的消息
+            console.log('找到', time, '和', newTime, '之间的消息：', oldMessages)
             if (oldMessages.length > 0){
                 
                 let messageRoot = generateRoot(oldMessages)  
@@ -84,7 +93,7 @@ const updateChain = async( groupId, start) => {
                 }
                 console.log(newBlock)
                 //更新
-                global.db.groupBlockRepository.put(newBlock , 'number')
+                global.db.groupBlockRepository.put(newBlock )
                 preBlock = newBlock
 
             }
@@ -182,21 +191,22 @@ const generateGenesisBlock = async(adminAccount, groupAccount, groupInfo, creato
 
     //构建状态，其中包含以群id为索引的群信息，以及以创建者用户id为索引的创建者信息，并标明身份
     let states = {}
-    states[groupAccount.account] = groupInfo
+    states[groupAccount.address] = groupInfo
     creator.status = 'creator'
     states[creator.userId] = creator
-    const stateRoot = generateRoot(states)
+    let stateLeaves = Object.values(states)
+    const stateRoot = generateRoot(stateLeaves, true)
     //创世块中只有一条消息，内容为任命自己为群主
     let messages = [message]
-    const messageRoot = generateRoot(states)
+    const messageRoot = generateRoot(messages)
 
 
-    const hash = global.web3.eth.accounts.hashMessage('' + groupAccount.account + 0 + groupInfo.createTime + stateRoot)
+    const hash = global.web3.eth.accounts.hashMessage('' + groupAccount.address + 0 + groupInfo.createTime + messageRoot + stateRoot)
     //用管理账户对hash值签名
     const signatureObject = global.web3.eth.accounts.sign(hash,adminAccount.privateKey);
     const signature = signatureObject.signature
     const newBlock = {
-        groupId: groupAccount.account,
+        groupId: groupAccount.address,
         preHash: '', 
         time: groupInfo.createTime,
         //messageRoot: root,
@@ -208,12 +218,47 @@ const generateGenesisBlock = async(adminAccount, groupAccount, groupInfo, creato
         messageRoot: messageRoot,
         messages: messages
     }
-    
+    console.log(newBlock)
     //保存创世块
-    global.db.groupBlockRepository.put(newBlock , 'number')
+    global.db.groupBlockRepository.put(newBlock )
+}
+
+const verifyGenesis = (genesis) => {
+    console.log('收到创世块', genesis)
+    let adminAccount
+    //验证群管理账号
+    try{
+        adminAccount = global.web3.eth.accounts.recover(genesis.hash ,genesis.signature )
+    }catch{
+        console.log('群管理账号签名错误')
+        return false
+    }
+    const entropy = Buffer.from(adminAccount + adminAccount + adminAccount + adminAccount, 'utf-8'); // must contain at least 128 chars
+    let groupAccount = EthCrypto.createIdentity(entropy);
+    let groupAccount2 = EthCrypto.createIdentity(entropy);
+      
+    console.log(adminAccount, groupAccount, groupAccount2 )
+    
+    if (groupAccount.address != genesis.groupId){
+        console.log('群管理账号签名错误')
+        return false
+    }
+
+    //验证群主消息签名
+
+    //验证消息和状态树根
+
+    //验证哈希值
+
+    global.db.groupBlockRepository.put(genesis )
+    return true
+
+
 }
 
 const sync = async(groupId, peerId) => {
+    //共同祖先的时间
+    let ancestorTime 
 
     //获取本地当前块
     let currentBlock = await localCurrentBlock(groupId)
@@ -227,6 +272,13 @@ const sync = async(groupId, peerId) => {
                 
             let recentBlocks = await fetchRecentSkeleton(groupId, peerId, currentBlock, 7*backWeeks)
             console.log(recentBlocks)
+
+            //判断一下对方的链是否和自己同一条且不比自己的长
+            let b = await global.groupBlockRepository.where({hash: recentBlocks[-1].hash}).first()
+            if (b){
+                return
+            }
+
             let blocksPromise = recentBlocks.map(async (block) => {
                 return global.groupBlockRepository.where({hash: block.hash}).first()
             })
@@ -260,31 +312,60 @@ const sync = async(groupId, peerId) => {
             return global.groupBlockRepository.where({hash: block.hash}).first()
         })
         let localNeighbors = await Promise.all(neighborsPromise);
+        for(let i in localNeighbors){
+            if( !localNeighbors[i]){
 
+            }
+        }
     }
 
     //没有找到当前块，获取所有的区块
     else{
         let blocks = await fetchAllBlocks(groupId, peerId)
-        for (let block of blocks){
-            //verify
-            if (block.messages){
-                for (let message of block.messages){
-                    //verify
-                    groupController.receiveGroupMessage(groupId, message, peerId)
+        let success = await processBlocks(blocks)
+        if (success){
+            ancestorTime = blocks[0].time
+            for (let block of blocks){
+                               
+                if (block.messages){
+                    for (let message of block.messages){
+                        
+                        
+                        //验证消息链
 
+
+                        groupController.receiveGroupMessage(groupId, message, peerId)
+    
+                    }
                 }
+                
             }
-            
+        }
+        
+    }
+
+    updateChain(groupId, ancestorTime)
+    
+    
+}
+
+const processBlocks = async(blocks) => {
+    console.log('开始验证部分区块链', blocks[0])
+    if(blocks[0].number == 0){
+        if (!verifyGenesis(blocks[0])){
+            return false
         }
     }
-    
-    
+
+    //验证每一块的前序块哈希
+
+    //验证每一块
+
+    return true
+
 }
 
-const processBlock = async(blocks) => {
 
-}
 
 const deliverRecentBlocksRequest = async(groupId, request, peerId) => {
     if (request.currentBlock){
@@ -305,7 +386,7 @@ const deliverRecentBlocksRequest = async(groupId, request, peerId) => {
                 let recentBlocks = await localRecentBlocks(groupId, 
                     request.requestSkeletonCount, 
                     request.requestSkeletonSkip,
-                    ((request.currentBlock.time < currentBlock.time) ? request.currentBlock.time : currentBlock.time))
+                    ((request.currentBlock.time < currentBlock.time) ? request.currentBlock.time : currentBlock.time) + 1)
                 global.roomObjects[groupId].syncRequest({
                     messageType: 'recentBlocks',
                     content: recentBlocks

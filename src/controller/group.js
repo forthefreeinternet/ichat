@@ -15,6 +15,8 @@ import { service } from './../common/constant/service';
 import { nameVerify } from './../common/tool/utils';
 
 import {joinRoom, selfId} from 'trystero'
+import EthCrypto from 'eth-crypto';
+import SHA256  from 'crypto-js/sha256'
 
 import localforage from 'localforage'
 
@@ -202,12 +204,15 @@ const createGroup = async(data) => {
 
       //生成管理账户，再用管理账户生成群账户
       let adminAccount = web3.eth.accounts.create();
-      let account =  web3.eth.accounts.create(adminAccount.address);
+      const entropy = Buffer.from(adminAccount.address + adminAccount.address + adminAccount.address + adminAccount.address, 'utf-8'); // must contain at least 128 chars
+      let account =  EthCrypto.createIdentity(entropy);
       data.groupId = account.address
       //为群账户充值
       //ethController.sendFund(global.user.privateKey, account.address, '10000000000000000')
+      data.adminPrivateKey = adminAccount.privateKey
       data.privateKey = account.privateKey
-      console.log(account.privateKey)
+      console.log(account)
+      console.log(adminAccount)
       //设置peer信息的密码
       const SDPpassword =  global.web3.eth.accounts.hashMessage(account.privateKey)
       data.SDPpassword = SDPpassword
@@ -220,7 +225,7 @@ const createGroup = async(data) => {
       const group = {groupId: data.groupId , userId:  data.userId,  groupName: data.groupName, createTime: new Date().valueOf()}
       const creator = {username: global.user.username,
                        userId: global.user.userId,
-                       avatar: global.user.avatar}
+                       avatar: ''}//global.user.avatar}
       let firstMessage = {} 
       firstMessage.messageType = 'admin'           
       firstMessage.time = group.createTime -1 
@@ -244,6 +249,7 @@ const createGroup = async(data) => {
       //this.server.to(group.groupId).emit('addGroup', { code: RCode.OK, msg: `成功创建群${data.groupName}`, data: group });
       groupApi.clientAddgroup({ code: RCode.OK, msg: `成功创建群${data.groupName}`, data: group })
       //this.getActiveGroupUser();
+      getActiveGroupUser(); 
     } else{
       this.server.to(data.userId).emit('addGroup', { code: RCode.FAIL, msg: `你没资格创建群` });
     }
@@ -323,6 +329,7 @@ const joinGroup = async(data) => {
       //   data: res
       // });
       //this.getActiveGroupUser(); 
+      getActiveGroupUser(); 
     } else {
       groupApi.clientJoinGroup({ code: RCode.FAIL, msg: '进群失败', data: '' })
       
@@ -392,6 +399,7 @@ const receiveGroupMessage = async(roomId,data, userId) => {
       if(data.time > groupLastMessage.time){
         //存储到聊天记录数据库
         global.db.groupMessageRepository.add( data ).then(() => {
+          blockController.updateChain(roomId, data.time)
           console.log('前端渲染')
           groupApi.receiveGroupMessage(roomId,data.content, userId) //调用前端函数进行渲染
         }).catch(function (err) {
@@ -402,6 +410,7 @@ const receiveGroupMessage = async(roomId,data, userId) => {
         global.db.groupMessageRepository.add( data ).then(()=>
         {
           console.log('存储了旧消息')
+          blockController.updateChain(roomId, data.time)
           initController.getAllData(global.user)
           // console.log('前端渲染')
           // groupApi.receiveGroupMessage(roomId,data.content, userId) //调用前端函数进行渲染
@@ -418,15 +427,15 @@ const receiveGroupMessage = async(roomId,data, userId) => {
         const preMessage = await global.db.groupMessageRepository.where({hash: data.preHash}).first()//查询数据库中是否已经保存前一条消息
         if(!preMessage){
           console.log(preMessage)
-          //这部分应该废弃，改为查询前一区块
-          // sendGroupMessage(
-          //   {
-          //     userId: global.user.userId,
-          //     groupId: roomId,
-          //     content: {key: 'hash', hash: data.preHash},
-          //     messageType: 'requireOldMessage',
-          //   }
-          // )//向群内其他成员索取缺失的消息
+          //这部分不应该废弃，因为前一区块有十几分钟延迟
+          sendGroupMessage(
+            {
+              userId: global.user.userId,
+              groupId: roomId,
+              content: {key: 'hash', hash: data.preHash},
+              messageType: 'requireOldMessage',
+            }
+          )//向群内其他成员索取缺失的消息
         }
       }
       return
@@ -528,7 +537,11 @@ const sendGroupMessage = async(data) => {
     data.signature = signatureObject.signature
     //console.log(data)
     if(data.messageType === 'text'){
-      global.db.groupMessageRepository.add(data); //保存到聊天记录数据库
+      global.db.groupMessageRepository.add(data).then(() => {
+        blockController.updateChain(data.groupId, data.time)
+        console.log('本地发送消息后更新区块')
+      }); //保存到聊天记录数据库
+      
       console.log('待发送消息成功保存到数据库')
       await global.db.groupRepository.update(data.groupId, {lastMessage: data.hash}) //更新自己最后一条消息的id
       console.log('更新当前消息哈希')
@@ -710,6 +723,7 @@ const roomInit = async(roomId) => {
         global.roomObjects[roomId].userIdsToIds[senderUserId] = id
         global.db.userRepository.add({userId :  senderUserId , username : name.split(':')[0]})
         //getOldMessages(roomId, id);
+        getActiveGroupUser()
       } )
 
       
@@ -738,15 +752,15 @@ const roomInit = async(roomId) => {
       }
       room.onPeerJoin(function(id){
         sendName(global.user.username + ':' +  global.user.userId, id)
+        
         if (true){ //( global.iterations ==0){
 
           blockController.sync(roomId, id)
 
 
-          //pollOldMessages
-          getOldMessages(roomId, id);
-          //setTimeout(pollOldMessagesAll,10)
-          //global.interval = setInterval(pollOldMessages,2000)
+          
+          //getOldMessages(roomId, id);
+          
           console.log(id, '加入了群聊：', roomId)
           //blockController.updateChain(roomId)
         }
@@ -822,6 +836,57 @@ const pollOldMessagesAll= async() =>{
     console.log('1205',global.interval)
   }
        
+}
+
+// 获取在线用户
+const getActiveGroupUser = async() => {
+  // // 从socket中找到连接人数
+  // // @ts-ignore;
+  // let userIdArr = Object.values(this.server.engine.clients).map(item=>{
+  //   // @ts-ignore;
+  //   return item.request._query.userId;
+  // });
+  // // 数组去重
+  // userIdArr = Array.from(new Set(userIdArr));
+
+  const activeGroupUserGather = {};
+  for(const roomId in global.roomObjects){
+    for(const id in global.roomObjects[roomId].idsToUserIds) {
+      //const userGroupArr = await this.groupUserRepository.find({userId: userId});
+      //const user = await this.userRepository.findOne({userId: userId});
+      // if(user && userGroupArr.length) {
+      //   userGroupArr.map(item => {
+      //     if(!activeGroupUserGather[item.groupId]) {
+      //       activeGroupUserGather[item.groupId] = {};
+      //     }
+      //     activeGroupUserGather[item.groupId][userId] = user;
+      //   });
+      // }
+
+      //TO-DO: 在群区块链或本地群用户数据库中验证一下用户是否在群中
+
+      if(!activeGroupUserGather[roomId]) {
+        activeGroupUserGather[roomId] = {};
+      }
+      activeGroupUserGather[roomId][global.roomObjects[roomId].idsToUserIds[id]] = {
+        userId: global.roomObjects[roomId].idsToUserIds[id],
+        username: global.roomObjects[roomId].idsToNames[id]
+      };
+
+
+
+    }
+  }
+  
+  console.log(activeGroupUserGather)
+  // this.server.to(this.defaultGroup).emit('activeGroupUser',{
+  //   msg: 'activeGroupUser', 
+  //   data: activeGroupUserGather
+  // });
+  groupApi.activeGroupUser({
+    msg: 'activeGroupUser', 
+    data: activeGroupUserGather
+  })
 }
 
 

@@ -101,6 +101,12 @@ const actions: ActionTree<ChatState, RootState> = {
     }
   },
 
+  // 初始化事件监听
+  activeGroupUser({ commit, state, dispatch, rootState },data: any){
+    console.log('activeGroupUser', data);
+    commit(SET_ACTIVE_GROUP_USER, data.data);
+  },
+
   groupMessage( { commit, state, dispatch, rootState }, res: ServerRes){
     console.log('on groupMessage', res);
     if (!res.code) {
