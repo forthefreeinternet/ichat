@@ -349,13 +349,48 @@ const deliverGroupSyncRequest = async(groupId, data, peerId) => {
     case 'fetchAllBlocks':
       blockController.deliverAllBlocksRequest(groupId, data.content, peerId)
       break
+    case 'fetchAncestorNeighbors':
+      blockController.deliverAncestorNeighborsRequest(groupId, data.content, peerId)
+      break
+    case 'fetchBlockByNumber':
+      blockController.deliverBlockByNumberRequest(groupId, data.content, peerId)
+      break
+    case 'fetchUser':
+      const user = await global.db.userRepository.where({userId: data.content.userId}).first()
+      if(user){
+        global.roomObjects[groupId].syncRequest({
+          messageType: 'user',
+          content: user
+        },
+        peerId)
+      }else{
+        global.roomObjects[groupId].syncRequest({
+          messageType: 'user',
+          content: 'failed'
+        },
+        peerId)
+      }
+      break
     case 'info':
       break
+    case 'user':
+      if(data.content != 'failed'){
+        global.roomObjects[groupId].deliverUser[data.content.userId](data.content)
+      }else{
+        global.roomObjects[groupId].deliverUser[data.content.userId](null)
+      }
     case 'recentBlocks':
       blockController.syncTasks[groupId].deliverRecentBlocks[peerId](data.content)
       break
     case 'allBlocks':
       blockController.syncTasks[groupId].deliverAllBlocks[peerId](data.content)
+      break
+    case 'block':
+      blockController.syncTasks[groupId].deliverBlock[peerId](data.content)
+      break
+    case 'ancestorNeighbors':
+      blockController.syncTasks[groupId].deliverAncestorNeighbors[peerId](data.content)
+      break
     
   }
 }
@@ -377,6 +412,7 @@ const receiveGroupMessage = async(roomId,data, userId) => {
       console.log('签名错误')
       return
     }
+    data.userId = sender//某些情况下消息可能省略发送者
     if ( sender != data.userId) {console.log('假签名', sender, userId);return}
     //验证个人id，群id及hash值
     //if( data.userId != userId) {console.log('信息的署名错误');return} //不需要是本人发，可以是转发
@@ -388,10 +424,25 @@ const receiveGroupMessage = async(roomId,data, userId) => {
     console.log('消息验证通过')
     if(data.messageType == 'text'){
       
-      const groupLastMessage = await global.db.groupMessageRepository.where('[groupId+time]').between(
+      let groupLastMessage = await global.db.groupMessageRepository.where('[groupId+time]').between(
         [ roomId, Dexie.minKey],
         [ roomId, Dexie.maxKey])
       .reverse().first()
+      
+      if(!groupLastMessage){
+        groupLastMessage = {time: 0}
+      }
+
+      let user = await global.db.userRepository
+        .where({ userId: sender })
+        .first()
+      if(!user){
+        user = await fetchUser(roomId, sender)
+        if(user){
+          global.db.userRepository.add(user)
+          initController.getAllData(global.user)
+        }
+      }
       
       
       //如果收到的消息发送时间在已经保存的最后一条消息之前，则入库后重新获取数据渲染。这是去中心化app的特性，因为收到消息并不及时。
@@ -401,7 +452,7 @@ const receiveGroupMessage = async(roomId,data, userId) => {
         global.db.groupMessageRepository.add( data ).then(() => {
           blockController.updateChain(roomId, data.time)
           console.log('前端渲染')
-          groupApi.receiveGroupMessage(roomId,data.content, userId) //调用前端函数进行渲染
+          groupApi.receiveGroupMessage(roomId,data.content, data.userId) //调用前端函数进行渲染
         }).catch(function (err) {
           return console.log(data, '聊天记录存储错误' ,err);
         });
@@ -497,13 +548,46 @@ const getGroupMessages = async(groupId, current, pageSize) =>{
       for(const message of groupMessage) {
       if(!userGather[message.userId]) {
         console.log(message)
-        userGather[message.userId] = await global.db.userRepository
+        let user = await global.db.userRepository
         .where({ userId: message.userId })
         .first()
+        if(user){
+          userGather[message.userId] = user
+        }else{
+          user = await fetchUser(groupId, message.userId)
+          if(user){
+            userGather[message.userId] = user
+            global.db.userRepository.add(user)
+          }
+          else
+            userGather[message.userId] = {userId: message.userId, username: message.userId}
+        }       
       }
     }
     userArr = Object.values(userGather);
     return {msg: '', data: { messageArr: groupMessage, userArr: userArr }};
+}
+
+const fetchUser = async(groupId, userId, peerId) => {
+  if(peerId)
+    global.roomObjects[groupId].syncRequest({
+      messageType: 'fetchUser',
+      content: {
+          userId: userId
+      }        
+    }, 
+    peerId)
+  else
+    global.roomObjects[groupId].syncRequest({
+      messageType: 'fetchUser',
+      content: {
+          userId: userId
+      }        
+    })
+
+  return new Promise(function(resolve, reject){
+    global.roomObjects[groupId].deliverUser[userId] = resolve
+  })
 }
 
 
@@ -699,6 +783,7 @@ const roomInit = async(roomId) => {
                   sendMessage: sendMessage,
                   sendPrivateMessage: sendPrivateMessage,
                   syncRequest: syncRequest,
+                  deliverUser: {},
                   sendOldMessage: sendOldMessage,
                   requireOldMessage: requireOldMessage,
                   idsToNames : idsToNames,
@@ -728,19 +813,21 @@ const roomInit = async(roomId) => {
 
       
       //查询下线时的新消息
-      let lastMessage = await
-      global.db.groupMessageRepository.where('[groupId+time]').between(
+      let lastBlock = await global.db.groupBlockRepository.where('[groupId+time]').between(
         [ roomId, Dexie.minKey],
         [ roomId, Dexie.maxKey])
       .reverse().first()
-      if (lastMessage)
-      {  console.log('聊天记录中最后一条消息的时间',lastMessage.time)
-        if(lastMessage.time){
-          global.roomObjects[roomId].offline = [lastMessage.time,  Date.now()]
+      let currentTime = Date.now()
+      if (lastBlock)
+      {  console.log('聊天记录中最后一个区块的时间',lastBlock.time)
+        if(lastBlock.time){
+          //global.roomObjects[roomId].offline = [lastBlock.time,  Date.now()]
+          global.roomObjects[roomId].offline = [currentTime - (currentTime% (1000* 1000)) - 1,  currentTime]
         }
         else{
-          let group = await global.db.groupRepository.where({groupId: roomId}).first()
-          global.roomObjects[roomId].offline = [group.createTime,  Date.now()]
+          //let group = await global.db.groupRepository.where({groupId: roomId}).first()
+          //global.roomObjects[roomId].offline = [group.createTime,  Date.now()]
+          global.roomObjects[roomId].offline = [currentTime - (currentTime% (1000* 1000)) - 1,  currentTime]
         }}
 
         
@@ -748,8 +835,11 @@ const roomInit = async(roomId) => {
       blockController.syncTasks[roomId] = {
         deliverRecentBlocks:{},
         deliverAllBlocks: {},
-        deliverAncestorNeighbors: {}
+        deliverAncestorNeighbors: {},
+        deliverBlock: {},
+        forks: {}
       }
+      blockController.updateChain(roomId)
       room.onPeerJoin(function(id){
         sendName(global.user.username + ':' +  global.user.userId, id)
         
@@ -759,7 +849,7 @@ const roomInit = async(roomId) => {
 
 
           
-          //getOldMessages(roomId, id);
+          getOldMessages(roomId, id);
           
           console.log(id, '加入了群聊：', roomId)
           //blockController.updateChain(roomId)
@@ -906,5 +996,6 @@ export default {
   roomInit,
   receiveGroupMessage,
   sendGroupMessage,
-  getGroupMessages
+  getGroupMessages,
+  fetchUser
 }

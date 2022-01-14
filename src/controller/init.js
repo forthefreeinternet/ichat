@@ -93,7 +93,20 @@ const friendMap=  await db.friendRepository.where({userId: user.userId}).toArray
       for(const message of groupMessage) {
         if(!userGather[message.userId]) {
           //userGather[message.userId] = await this.userRepository.findOne({userId: message.userId});
-          userGather[message.userId] = await db.userRepository.where({userId: message.userId}).first(); //*********** */
+          let user = await db.userRepository.where({userId: message.userId}).first();
+          if (user){
+            userGather[message.userId] = user
+          }else{
+            // user = await groupController.fetchUser(item.groupId, message.userId)
+            // if(user){
+            //   userGather[message.userId] = user
+            //   db.userRepository.add(user)
+            // }
+            userGather[message.userId] = {
+              userId: message.userId,
+              username: message.userId
+            }
+          }          
         }
       }
       return groupMessage;

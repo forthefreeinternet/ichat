@@ -49,7 +49,7 @@ const generateRoot = (flowers, hashLeaves = false) => {
 }
 
 const updateChain = async( groupId, start) => {
-    const group = await global.db.groupRepository.where({groupId: groupId}).first();
+    //const group = await global.db.groupRepository.where({groupId: groupId}).first();
      let lastBlock 
      if (start){
         lastBlock = await global.db.groupBlockRepository.where('[groupId+time]').between(
@@ -74,8 +74,17 @@ const updateChain = async( groupId, start) => {
          var time = preBlock.time
          const currentTime = Date.now()
          for ( ;time < currentTime - blockTime; time = time + blockTime){
+            const firstOldMessage = await global.db.groupMessageRepository.where(['groupId' , 'time'])
+                .between( [groupId, time],[groupId, Dexie.maxKey])
+                .first() 
+            let skipNumber = (firstOldMessage.time -time - ((firstOldMessage.time -time) % blockTime)) / blockTime
+            time = time+ blockTime* skipNumber
+            if (time >= currentTime - blockTime){
+                break
+            }
             let newTime = time+ blockTime
-            let oldMessages = await global.db.groupMessageRepository.where(['groupId' , 'time']).between( [groupId, time],[groupId, newTime]).toArray() //通过哈希值获取已经在聊天记录数据库的消息
+            
+            let oldMessages = await global.db.groupMessageRepository.where(['groupId' , 'time']).between( [groupId, time],[groupId, newTime]).toArray() //获取已经在聊天记录数据库的消息
             console.log('找到', time, '和', newTime, '之间的消息：', oldMessages)
             if (oldMessages.length > 0){
                 
@@ -122,15 +131,15 @@ const localCurrentBlock = async(groupId) => {
 
 const localRecentBlocks = async(groupId, skeletonCount, skeletonSkip, endTime) => {
     let blocksMap = []
-    for( let i = 0; i < skeletonCount; i ++){
+    for( let i = 1; i < skeletonCount; i ++){
         blocksMap.push(endTime - (i * skeletonSkip))  
     }
     blocksMap.reverse()
     let blocksPromise = blocksMap.map(async (time) => {
         return global.db.groupBlockRepository.where('[groupId+time]').between(
-            [ groupId, Dexie.minKey],
-            [ groupId,time])
-          .reverse().first()
+            [ groupId, time],
+            [ groupId,Dexie.maxKey])
+          .first()
     })
     const blocks = await Promise.all(blocksPromise);
     return blocks
@@ -167,6 +176,20 @@ const fetchAllBlocks = async(groupId, peerId) => {
 
     return new Promise(function(resolve, reject){
         syncTasks[groupId].deliverAllBlocks[peerId] = resolve
+    })
+}
+
+const fetchBlockByNumber = async(groupId, peerId, number) => {
+    global.roomObjects[groupId].syncRequest({
+        messageType: 'fetchBlockByNumber',
+        content: {
+            number: number
+        }        
+    }, 
+    peerId)
+
+    return new Promise(function(resolve, reject){
+        syncTasks[groupId].deliverBlock[peerId] = resolve
     })
 }
 
@@ -235,9 +258,9 @@ const verifyGenesis = (genesis) => {
     }
     const entropy = Buffer.from(adminAccount + adminAccount + adminAccount + adminAccount, 'utf-8'); // must contain at least 128 chars
     let groupAccount = EthCrypto.createIdentity(entropy);
-    let groupAccount2 = EthCrypto.createIdentity(entropy);
+    //let groupAccount2 = EthCrypto.createIdentity(entropy);
       
-    console.log(adminAccount, groupAccount, groupAccount2 )
+    //console.log(adminAccount, groupAccount, groupAccount2 )
     
     if (groupAccount.address != genesis.groupId){
         console.log('群管理账号签名错误')
@@ -250,7 +273,8 @@ const verifyGenesis = (genesis) => {
 
     //验证哈希值
 
-    global.db.groupBlockRepository.put(genesis )
+    global.db.groupBlockRepository.put(genesis ).then(() => {console.log('成功保存创世块', genesis)})
+    console.log('试图保存创世块', genesis)
     return true
 
 
@@ -266,21 +290,30 @@ const sync = async(groupId, peerId) => {
     if(currentBlock){
         //如果有当前块，查找最近七天的区块骨架
         let backWeeks = 1
-
+        let remoteHeight = currentBlock.number
         let ancestorDate = []
         for(; backWeeks < 5 ;backWeeks ++){
                 
             let recentBlocks = await fetchRecentSkeleton(groupId, peerId, currentBlock, 7*backWeeks)
             console.log(recentBlocks)
 
-            //判断一下对方的链是否和自己同一条且不比自己的长
-            let b = await global.groupBlockRepository.where({hash: recentBlocks[-1].hash}).first()
-            if (b){
-                return
+            if(backWeeks == 1){
+                //判断一下对方的链是否和自己同一条且不比自己的长
+                let b = await global.db.groupBlockRepository.where({hash: recentBlocks[recentBlocks.length -1].hash}).first() //最后一块应当是远程节点的当前块
+                if (b){
+                    console.log('对方的链更短')
+                    return
+                }
+                remoteHeight = recentBlocks[recentBlocks.length -1].number
+                console.log('对方的当前块为：',  recentBlocks[recentBlocks.length -1])
             }
+            
 
             let blocksPromise = recentBlocks.map(async (block) => {
-                return global.groupBlockRepository.where({hash: block.hash}).first()
+                if (block)
+                    return global.db.groupBlockRepository.where({hash: block.hash}).first()
+                else
+                    return null
             })
             let localBlocks = await Promise.all(blocksPromise);
 
@@ -299,7 +332,8 @@ const sync = async(groupId, peerId) => {
                     }
                     else{
                         //这一块没有保存
-                        ancestorDate[1] = localBlocks[index].time //此时已找到共同祖先块的日期上下限
+                        ancestorDate[1] = recentBlocks[index].time + 1 //此时已找到共同祖先块的日期上下限
+                        break
                     }
                 }
                 break
@@ -307,14 +341,69 @@ const sync = async(groupId, peerId) => {
             //没有找到共同祖先，继续往前查找
         }
         let neighbors = await fetchAncestorNeighbors(groupId, peerId, ancestorDate)
-        console.log(neighbors)
+        let ancestor
+        console.log('查询到共同祖先附近的区块：',neighbors)
         let neighborsPromise = neighbors.map(async (block) => {
-            return global.groupBlockRepository.where({hash: block.hash}).first()
+            if(block)
+                return global.db.groupBlockRepository.where({hash: block.hash}).first()
+            else
+                return null
         })
         let localNeighbors = await Promise.all(neighborsPromise);
         for(let i in localNeighbors){
             if( !localNeighbors[i]){
+                ancestor = localNeighbors[i-1]
+                console.log('找到共同祖先块：', ancestor)
+                break
+            }
+        }
+        if(syncTasks[groupId].forks[ancestor.hash]){
+            console.log('从', ancestor, '开始的这一分叉已经开始同步了')
+            let currentMaxHeight = syncTasks[groupId].forks[ancestor.hash].finishedHeight
+            for(;;currentMaxHeight < remoteHeight ){
+                let newBlock = await fetchBlockByNumber(groupId, peerId, currentMaxHeight + 1)
+                if(newBlock){
+                    if( syncTasks[groupId].forks[ancestor.hash].finishedBlock[newBlock.hash]){
 
+                    }else{
+                        syncTasks[groupId].forks[ancestor.hash].finishedBlock[newBlock.hash] = newBlock.preHash
+                        syncTasks[groupId].forks[ancestor.hash].finishedHeight = newBlock.number
+                        processBlock(newBlock)
+                    }
+                }
+                
+                currentMaxHeight = syncTasks[groupId].forks[ancestor.hash].finishedHeight
+                console.log(syncTasks[groupId].forks)
+                
+            }
+        }else{
+            console.log('找到一个新的分叉')
+            const finishedBlock = {}
+            finishedBlock[ancestor.hash] = {
+                preHash : ancestor.preHash
+            }
+            syncTasks[groupId].forks[ancestor.hash] = {
+                finishedBlock: finishedBlock,
+                peerIds: [peerId],
+                finishedHeight: ancestor.number
+            }
+
+            let currentMaxHeight = syncTasks[groupId].forks[ancestor.hash].finishedHeight
+            for(;;currentMaxHeight < remoteHeight ){
+                let newBlock = await fetchBlockByNumber(groupId, peerId, currentMaxHeight + 1)
+                if(newBlock){
+                    if( syncTasks[groupId].forks[ancestor.hash].finishedBlock[newBlock.hash]){
+
+                    }else{
+                        syncTasks[groupId].forks[ancestor.hash].finishedBlock[newBlock.hash] = newBlock.preHash
+                        syncTasks[groupId].forks[ancestor.hash].finishedHeight = newBlock.number
+                        processBlock(newBlock)
+                    }
+                }
+                
+                currentMaxHeight = syncTasks[groupId].forks[ancestor.hash].finishedHeight
+                console.log(syncTasks[groupId].forks)
+                
             }
         }
     }
@@ -325,21 +414,7 @@ const sync = async(groupId, peerId) => {
         let success = await processBlocks(blocks)
         if (success){
             ancestorTime = blocks[0].time
-            for (let block of blocks){
-                               
-                if (block.messages){
-                    for (let message of block.messages){
-                        
-                        
-                        //验证消息链
-
-
-                        groupController.receiveGroupMessage(groupId, message, peerId)
-    
-                    }
-                }
-                
-            }
+            
         }
         
     }
@@ -360,11 +435,39 @@ const processBlocks = async(blocks) => {
     //验证每一块的前序块哈希
 
     //验证每一块
+    for(const block of blocks){
+        if (processBlock(block)){
 
+        }else{
+            return false
+        }
+    }
+    
+    
     return true
 
 }
 
+const processBlock = async(block) => {
+    console.log('开始验证区块', block)
+    if(block.number == 0){
+        if (!verifyGenesis(block)){
+            return false
+        }
+    }
+    for (let message of block.messages){
+                        
+                        
+        //验证消息链
+
+
+        groupController.receiveGroupMessage(block.groupId, message, null)
+
+    }
+    
+    return true
+
+}
 
 
 const deliverRecentBlocksRequest = async(groupId, request, peerId) => {
@@ -373,7 +476,7 @@ const deliverRecentBlocksRequest = async(groupId, request, peerId) => {
         console.log('其他用户向本地发送同步请求时，本地的当前块', currentBlock)
         if (currentBlock){
 
-            //当前块相同
+            //对方的当前块和本地当前块相同
             if (currentBlock.hash == request.currentBlock.hash){
                 console.log('其他用户向本地发送同步请求时，当前块相同')
                 global.roomObjects[groupId].syncRequest({
@@ -383,15 +486,30 @@ const deliverRecentBlocksRequest = async(groupId, request, peerId) => {
                 peerId)
             }
             else{
-                let recentBlocks = await localRecentBlocks(groupId, 
-                    request.requestSkeletonCount, 
-                    request.requestSkeletonSkip,
-                    ((request.currentBlock.time < currentBlock.time) ? request.currentBlock.time : currentBlock.time) + 1)
-                global.roomObjects[groupId].syncRequest({
-                    messageType: 'recentBlocks',
-                    content: recentBlocks
-                },
-                peerId)
+                let localBlock = await global.db.groupBlockRepository.where({hash: request.currentBlock.hash}).first()
+                if(localBlock){ //对方的当前块在本地链中，返回这一块和下一块
+                    let nextBlock = await global.db.groupBlockRepository.where({preHash: request.currentBlock.hash}).first()
+                    const result = [localBlock, nextBlock]
+
+                    global.roomObjects[groupId].syncRequest({
+                        messageType: 'recentBlocks',
+                        content: result
+                    },
+                    peerId)
+                }else{ //对方的当前块不在本地链中，返回按天为间隔的recent blocks
+                    let recentBlocks = await localRecentBlocks(groupId, 
+                        request.requestSkeletonCount, 
+                        request.requestSkeletonSkip,
+                        ((request.currentBlock.time < currentBlock.time) ? request.currentBlock.time : currentBlock.time) + 1)
+                    recentBlocks.push(currentBlock)//最后一项是本地当前块
+                    //发送
+                    global.roomObjects[groupId].syncRequest({
+                        messageType: 'recentBlocks',
+                        content: recentBlocks
+                    },
+                    peerId)
+                }
+                
             }
         }
         else{
@@ -419,10 +537,71 @@ const deliverAllBlocksRequest = async(groupId, request, peerId) => {
             let blocks = await global.db.groupBlockRepository.where('[groupId+time]').between(
                 [ groupId, Dexie.minKey],
                 [ groupId, Dexie.maxKey])
-              .reverse().toArray()
+              .toArray()
             global.roomObjects[groupId].syncRequest({
                 messageType: 'allBlocks',
                 content: blocks
+            },
+            peerId)
+        }
+        else{
+
+            //本地没有保存该链的区块
+            console.log('其他用户向本地发送同步请求时，本地没有保存该链的区块')
+            global.roomObjects[groupId].syncRequest({
+                messageType: 'info',
+                content: 'failed'
+            },
+            peerId)
+        }
+
+    }
+    
+}
+
+const deliverAncestorNeighborsRequest  = async(groupId, request, peerId) => {
+    if (true){
+        let currentBlock = await localCurrentBlock(groupId)
+        console.log('其他用户向本地发送同步请求时，本地的当前块', currentBlock)
+        if (currentBlock){
+
+            let blocks = await global.db.groupBlockRepository.where('[groupId+time]').between(
+                [ groupId, request.date[0]],
+                [ groupId, request.date[1]])
+              .toArray()
+            global.roomObjects[groupId].syncRequest({
+                messageType: 'ancestorNeighbors',
+                content: blocks
+            },
+            peerId)
+        }
+        else{
+
+            //本地没有保存该链的区块
+            console.log('其他用户向本地发送同步请求时，本地没有保存该链的区块')
+            global.roomObjects[groupId].syncRequest({
+                messageType: 'info',
+                content: 'failed'
+            },
+            peerId)
+        }
+
+    }
+    
+}
+
+const deliverBlockByNumberRequest = async(groupId, request, peerId) => {
+    if (true){
+        let currentBlock = await localCurrentBlock(groupId)
+        console.log('其他用户向本地发送同步请求时，本地的当前块', currentBlock)
+        if (currentBlock){
+
+            let block = await global.db.groupBlockRepository.where('[groupId+number]').equals(
+                [ groupId, request.number])
+              .first()
+            global.roomObjects[groupId].syncRequest({
+                messageType: 'block',
+                content: block
             },
             peerId)
         }
@@ -448,5 +627,7 @@ export default{
     sync,
     deliverRecentBlocksRequest,
     deliverAllBlocksRequest,
-    generateGenesisBlock
+    generateGenesisBlock,
+    deliverAncestorNeighborsRequest,
+    deliverBlockByNumberRequest
 }

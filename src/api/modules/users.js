@@ -57,5 +57,9 @@ export default {
   /**更新用户密码 */
   updateUserPwd(data) {
     return request.post(`${API}/user/updateUserPwd`, data)
+  },
+  async setUserAvatar(data){
+    let newUser = await userController.setUserAvatar(data)
+    return { msg: '修改头像成功', data: newUser}
   }
 }
