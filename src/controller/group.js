@@ -412,17 +412,20 @@ const receiveGroupMessage = async(roomId,data, userId) => {
       console.log('签名错误')
       return
     }
+    console.log('签名正确')
     data.userId = sender//某些情况下消息可能省略发送者
     if ( sender != data.userId) {console.log('假签名', sender, userId);return}
     //验证个人id，群id及hash值
     //if( data.userId != userId) {console.log('信息的署名错误');return} //不需要是本人发，可以是转发
     if( data.groupId != roomId) {console.log('错群，原消息在', data.groupId, '，发到了', roomId);return}
-    if( data.hash != global.web3.eth.accounts.hashMessage(data.preHash + data.groupId + data.content + data.time)) return
+    console.log('群聊正确') 
+    if( data.hash != global.web3.eth.accounts.hashMessage(data.preHash + data.groupId + data.content + data.time)){ console.log('哈希值错误'); return}
+    console.log('哈希值正确')
     //验证时间，消息发送时间不能超过当前时间
     if( data.time > Date.now()) {console.log('消息时间造假');return}
     //验证消息完毕
     console.log('消息验证通过')
-    if(data.messageType == 'text'){
+    if(data.messageType == 'text' || data.messageType == 'image'){
       
       let groupLastMessage = await global.db.groupMessageRepository.where('[groupId+time]').between(
         [ roomId, Dexie.minKey],
@@ -450,9 +453,18 @@ const receiveGroupMessage = async(roomId,data, userId) => {
       if(data.time > groupLastMessage.time){
         //存储到聊天记录数据库
         global.db.groupMessageRepository.add( data ).then(() => {
+          console.log('保存了消息：', data)
           blockController.updateChain(roomId, data.time)
           console.log('前端渲染')
-          groupApi.receiveGroupMessage(roomId,data.content, data.userId) //调用前端函数进行渲染
+          const uiData = {
+            userId: data.userId,
+            groupId: roomId,
+            content: data.content,
+            width: data.width,
+            height: data.height,
+            messageType: data.messageType,
+          }
+          groupApi.receiveGroupMessage(uiData) //调用前端函数进行渲染
         }).catch(function (err) {
           return console.log(data, '聊天记录存储错误' ,err);
         });
@@ -460,7 +472,7 @@ const receiveGroupMessage = async(roomId,data, userId) => {
       else{
         global.db.groupMessageRepository.add( data ).then(()=>
         {
-          console.log('存储了旧消息')
+          console.log('保存了旧消息：', data)
           blockController.updateChain(roomId, data.time)
           initController.getAllData(global.user)
           // console.log('前端渲染')
@@ -484,7 +496,87 @@ const receiveGroupMessage = async(roomId,data, userId) => {
               userId: global.user.userId,
               groupId: roomId,
               content: {key: 'hash', hash: data.preHash},
-              messageType: 'requireOldMessage',
+              messageType: 'fetchOldMessage',
+            }
+          )//向群内其他成员索取缺失的消息
+        }
+      }
+      return
+    }
+
+    if(data.messageType == 'file'){
+      
+      let groupLastMessage = await global.db.groupMessageRepository.where('[groupId+time]').between(
+        [ roomId, Dexie.minKey],
+        [ roomId, Dexie.maxKey])
+      .reverse().first()
+      
+      if(!groupLastMessage){
+        groupLastMessage = {time: 0}
+      }
+
+      let user = await global.db.userRepository
+        .where({ userId: sender })
+        .first()
+      if(!user){
+        user = await fetchUser(roomId, sender)
+        if(user){
+          global.db.userRepository.add(user)
+          initController.getAllData(global.user)
+        }
+      }
+      
+      
+      //如果收到的消息发送时间在已经保存的最后一条消息之前，则入库后重新获取数据渲染。这是去中心化app的特性，因为收到消息并不及时。
+      console.log(data.time , '大于还是小于？', groupLastMessage.time)
+      if(data.time > groupLastMessage.time){
+        //存储到聊天记录数据库
+        global.db.groupMessageRepository.add( data ).then(() => {
+          console.log('保存了消息：', data)
+          blockController.updateChain(roomId, data.time)
+          console.log('前端渲染')
+
+          const uiData = {
+            userId: data.userId,
+            groupId: roomId,
+            content: URL.createObjectURL(data.content),
+            width: data.width,
+            height: data.height,
+            messageType: data.messageType,
+          }
+          groupApi.receiveGroupMessage(uiData) //调用前端函数进行渲染
+        }).catch(function (err) {
+          return console.log(data, '聊天记录存储错误' ,err);
+        });
+      }
+      else{
+        global.db.groupMessageRepository.add( data ).then(()=>
+        {
+          console.log('保存了旧消息：', data)
+          blockController.updateChain(roomId, data.time)
+          initController.getAllData(global.user)
+          // console.log('前端渲染')
+          // groupApi.receiveGroupMessage(roomId,data.content, userId) //调用前端函数进行渲染
+        
+        }
+        ).catch(function (err) {
+          return console.log('聊天记录存储错误' ,err);
+        });
+        
+      }
+      
+      //判断该用户发送的前一条消息是否已收到
+      if(data.preHash != data.groupId){//用户在群里发送的第一条消息，前置消息哈希是群id。若前置消息哈希是群id，则不用获取前面的消息
+        const preMessage = await global.db.groupMessageRepository.where({hash: data.preHash}).first()//查询数据库中是否已经保存前一条消息
+        if(!preMessage){
+          console.log(preMessage)
+          //这部分不应该废弃，因为前一区块有十几分钟延迟
+          sendGroupMessage(
+            {
+              userId: global.user.userId,
+              groupId: roomId,
+              content: {key: 'hash', hash: data.preHash},
+              messageType: 'fetchOldMessage',
             }
           )//向群内其他成员索取缺失的消息
         }
@@ -493,11 +585,21 @@ const receiveGroupMessage = async(roomId,data, userId) => {
     }
 
     //接收到索取旧消息的消息，在数据库中查找并发送旧消息
-    if(data.messageType == 'requireOldMessage'){
+    if(data.messageType == 'fetchOldMessage'){
       //如果索取者是索取某条消息
       if( data.content.key == 'hash'){
         let preMessage = await global.db.groupMessageRepository.where({hash: data.content.hash}).first() //通过哈希值获取已经在聊天记录数据库的消息
-        delete preMessage._id
+        preMessage = {
+          content: preMessage.content,
+          groupId: preMessage.groupId,
+          hash: preMessage.hash,
+          messageType: preMessage.messageType,
+          preHash: preMessage.preHash,
+          signature: preMessage.signature,
+          time: preMessage.time,
+          userId: preMessage.userId,
+        }
+        
         global.roomObjects[data.groupId].sendMessage(preMessage, global.roomObjects[roomId].userIdsToIds[data.userId]) //该记录已经包含哈希值以及消息创建者的签名，直接通过webRTC房间注册的消息发送函数发送
       }
       //如果索取者是索取某段时间的消息
@@ -602,10 +704,74 @@ const sendGroupMessage = async(data) => {
     //   return;
     // } 
     if(data.messageType === 'image') {
-      const randomName = `${Date.now()}$${data.userId}$${data.width}$${data.height}`;
-      const stream = createWriteStream(join('public/static', randomName));
-      stream.write(data.content);
-      data.content = randomName;
+      console.log(data)
+      if(window.FileReader) {
+        var reader = new FileReader();
+      }
+      else {
+        alert("当前浏览器不支持!");
+      }
+
+      try {
+        //var reader = new FileReader()
+        if (data.content) {
+          reader.readAsDataURL(data.content)
+          reader.onload = function(){
+            console.log(this.result)
+            data.content = this.result
+          }
+          reader.onerror = function() {
+            console.log("load file error")
+          }
+          
+        } else {
+          console.log("file not found")
+        }
+      } catch (e) {
+        console.log("file not found")
+      }
+      // const randomName = `${Date.now()}$${data.userId}$${data.width}$${data.height}`;
+      // const stream = createWriteStream(join('public/static', randomName));
+      // stream.write(data.content);
+      // data.content = randomName;
+    }
+    if(data.messageType === 'file') {
+      console.log(data)
+      data.name = data.content.name
+      if(window.FileReader) {
+        var reader = new FileReader();
+      }
+      else {
+        alert("当前浏览器不支持!");
+      }
+
+      try {
+        //var reader = new FileReader()
+        if (data.content) {
+          reader.readAsDataURL(data.content)
+          reader.onload = async function(){
+            console.log(this.result)
+            await fetch(this.result).then(res => res.blob())
+            .then(blob => {
+              console.log('blob: ', blob)
+              data.content = blob
+            })
+            
+          }
+          reader.onerror = function() {
+            console.log("load file error")
+          }
+          
+        } else {
+          console.log("file not found")
+        }
+      } catch (e) {
+        console.log("file not found")
+      }
+      // const randomName = `${Date.now()}$${data.userId}$${data.width}$${data.height}`;
+      // const stream = createWriteStream(join('public/static', randomName));
+      // stream.write(data.content);
+      // data.content = randomName;
     }
     if (!data.time)
     data.time = Date.now() //new Date.valueOf(); // 使用服务端时间
@@ -620,15 +786,17 @@ const sendGroupMessage = async(data) => {
     let signatureObject = global.web3.eth.accounts.sign(data.hash, global.user.privateKey);  
     data.signature = signatureObject.signature
     //console.log(data)
-    if(data.messageType === 'text'){
+    if(data.messageType === 'text' ||data.messageType === 'image' ){
       global.db.groupMessageRepository.add(data).then(() => {
+        console.log('保存了消息：', data)
         blockController.updateChain(data.groupId, data.time)
         console.log('本地发送消息后更新区块')
       }); //保存到聊天记录数据库
       
-      console.log('待发送消息成功保存到数据库')
-      await global.db.groupRepository.update(data.groupId, {lastMessage: data.hash}) //更新自己最后一条消息的id
-      console.log('更新当前消息哈希')
+      
+      await global.db.groupRepository.update(data.groupId, {lastMessage: data.hash})
+          .then(() => console.log('更新当前消息哈希')) //更新自己最后一条消息的id
+      
 
       const peers = global.roomObjects[data.groupId].room.getPeers()
       console.log('群在线用户：', peers )
@@ -645,12 +813,63 @@ const sendGroupMessage = async(data) => {
       
 
       //将自己发送的消息经数据接口传输到前端渲染
-      groupApi.receiveGroupMessage(data.groupId, data.content, global.user.userId ) 
+      const uiData = {
+        userId:  global.user.userId ,
+        groupId: data.groupId,
+        content: data.content,
+        width: data.width,
+        height: data.height,
+        messageType: data.messageType,
+      }
+      groupApi.receiveGroupMessage(uiData) 
       
       //this.server.to(data.groupId).emit('groupMessage', {code: RCode.OK, msg:'', data: data});
     }
 
-    if(data.messageType == 'requireOldMessage'){
+    if( data.messageType === 'file' ){
+      global.db.groupMessageRepository.add(data).then(() => {
+        console.log('保存了消息：', data)
+        blockController.updateChain(data.groupId, data.time)
+        console.log('本地发送消息后更新区块')
+      }); //保存到聊天记录数据库
+      
+      
+      await global.db.groupRepository.update(data.groupId, {lastMessage: data.hash})
+          .then(() => console.log('更新当前消息哈希')) //更新自己最后一条消息的id
+      
+
+      const peers = global.roomObjects[data.groupId].room.getPeers()
+      console.log('群在线用户：', peers )
+      delete data._id
+      //console.log(data)
+      
+      if(peers.length != 0){
+        global.roomObjects[data.groupId].sendMessage(data)  //通过webRTC房间注册的发送函数发送消息
+      }
+      else{
+        //console.log('用以太坊发送消息')
+        //ethController.sendMessage(data.groupId, group.privateKey , data.groupId, data)
+      }
+      
+
+      //将自己发送的消息经数据接口传输到前端渲染
+      const uiData = {
+        userId:  global.user.userId ,
+        groupId: data.groupId,
+        content: URL.createObjectURL(data.content),
+        width: data.width,
+        height: data.height,
+        messageType: data.messageType,
+        name: data.name
+      }
+      groupApi.receiveGroupMessage(uiData) 
+      
+      //this.server.to(data.groupId).emit('groupMessage', {code: RCode.OK, msg:'', data: data});
+    }
+
+    
+
+    if(data.messageType == 'fetchOldMessage'){
       console.log('发送旧消息请求', data)
       global.roomObjects[data.groupId].sendMessage(data) //向其他群成员索取旧消息的消息，不需要入库，直接通过webRTC房间注册的发送函数发送消息
     }
@@ -693,7 +912,7 @@ const sendGroupPrivateMessage = async(data) => {
     //console.log(data)
     if(data.messageType === 'text'){
       global.db.groupMessageRepository.add(data); //保存到聊天记录数据库
-      console.log('待发送消息成功保存到数据库')
+      console.log('待发送消息成功保存到数据库', data)
       await global.db.groupRepository.update(data.groupId, {lastMessage: data.hash}) //更新自己最后一条消息的id
       console.log('更新当前消息哈希')
 
@@ -712,12 +931,21 @@ const sendGroupPrivateMessage = async(data) => {
       
 
       //将自己发送的消息经数据接口传输到前端渲染
-      groupApi.receiveGroupMessage(data.groupId, data.content, global.user.userId ) 
+
+      const uiData = {
+        userId:  global.user.userId ,
+        groupId: data.groupId,
+        content: data.content,
+        width: data.width,
+        height: data.height,
+        messageType: data.messageType,
+      }
+      groupApi.receiveGroupMessage(uiData)  
       
       //this.server.to(data.groupId).emit('groupMessage', {code: RCode.OK, msg:'', data: data});
     }
 
-    if(data.messageType == 'requireOldMessage'){
+    if(data.messageType == 'fetchOldMessage'){
       console.log('发送旧消息请求', data)
       let id = data.to
       delete data.to
@@ -758,13 +986,14 @@ const roomInit = async(roomId) => {
       const [syncRequest, getSyncRequest] = room.makeAction('sync')
       getSyncRequest(function(message, id){
         console.log('webRtc getMessage ' , message , ' from ' + id + '(' + global.roomObjects[roomId].idsToUserIds[id] + ') in ' + roomId)
-        deliverGroupSyncRequest(roomId, message, id)
+        if(blockController.syncTasks[roomId].ban.indexOf(id) == -1)
+          deliverGroupSyncRequest(roomId, message, id)
         //receiveGroupMessage(roomId, message, global.roomObjects[roomId].idsToUserIds[id] ) 
       })
 
       //register require old message service
-      const [requireOldMessage, getOldMessageRequest] = room.makeAction('requireOld')
-      getOldMessageRequest(function(request, id){
+      const [fetchOldMessage, deliverOldMessage] = room.makeAction('requireOld')
+      deliverOldMessage(function(request, id){
         console.log('webRtc getMessage ' + request + ' from ' + id)
         sendOldMessage(roomId, request , global.roomObjects[roomId].idsToUserIds[id] ) })
 
@@ -774,6 +1003,17 @@ const roomInit = async(roomId) => {
         console.log('webRtc getMessage ' + message + ' from ' + id)
         updateGroupMessage(roomId, message, roomId , global.roomObjects[roomId].idsToUserIds[id] ) })
 
+      // register file service
+      // const [sendFile, getFile] = room.makeAction('message')
+      // getFile(function(message, id){
+      //   console.log('webRtc getMessage ' , message , ' from ' + id + '(' + global.roomObjects[roomId].idsToUserIds[id] + ') in ' + roomId)
+      //   receiveGroupMessage(roomId, message, global.roomObjects[roomId].idsToUserIds[id] ) })  
+
+      const [sendFile, getFile] = room.makeAction('file')
+      getFile(function(message, id){
+        console.log('webRtc getMessage ' , message , ' from ' + id + '(' + global.roomObjects[roomId].idsToUserIds[id] + ') in ' + roomId)
+        receiveGroupMessage(roomId, message, global.roomObjects[roomId].idsToUserIds[id] ) })  
+
       const idsToNames = {}
       const idsToUserIds = {}
       console.log(JSON.stringify(global.user))
@@ -782,10 +1022,11 @@ const roomInit = async(roomId) => {
       global.roomObjects[roomId] = {room:room,
                   sendMessage: sendMessage,
                   sendPrivateMessage: sendPrivateMessage,
+                  sendFile: sendFile,
                   syncRequest: syncRequest,
                   deliverUser: {},
                   sendOldMessage: sendOldMessage,
-                  requireOldMessage: requireOldMessage,
+                  fetchOldMessage: fetchOldMessage,
                   idsToNames : idsToNames,
                   idsToUserIds : idsToUserIds,
                   userIdsToIds : {},
@@ -813,22 +1054,24 @@ const roomInit = async(roomId) => {
 
       
       //查询下线时的新消息
-      let lastBlock = await global.db.groupBlockRepository.where('[groupId+time]').between(
+      global.db.groupBlockRepository.where('[groupId+time]').between(
         [ roomId, Dexie.minKey],
         [ roomId, Dexie.maxKey])
-      .reverse().first()
-      let currentTime = Date.now()
-      if (lastBlock)
-      {  console.log('聊天记录中最后一个区块的时间',lastBlock.time)
-        if(lastBlock.time){
-          //global.roomObjects[roomId].offline = [lastBlock.time,  Date.now()]
-          global.roomObjects[roomId].offline = [currentTime - (currentTime% (1000* 1000)) - 1,  currentTime]
-        }
-        else{
-          //let group = await global.db.groupRepository.where({groupId: roomId}).first()
-          //global.roomObjects[roomId].offline = [group.createTime,  Date.now()]
-          global.roomObjects[roomId].offline = [currentTime - (currentTime% (1000* 1000)) - 1,  currentTime]
-        }}
+      .reverse().first(function(lastBlock){
+        let currentTime = Date.now()
+        if (lastBlock){
+          console.log('聊天记录中最后一个区块的时间',lastBlock.time)
+          if(lastBlock.time){
+            //global.roomObjects[roomId].offline = [lastBlock.time,  Date.now()]
+            global.roomObjects[roomId].offline = [currentTime - (currentTime% (1000* 1000)) - 1,  currentTime]
+          }
+          else{
+            //let group = await global.db.groupRepository.where({groupId: roomId}).first()
+            //global.roomObjects[roomId].offline = [group.createTime,  Date.now()]
+            global.roomObjects[roomId].offline = [currentTime - (currentTime% (1000* 1000)) - 1,  currentTime]
+          }}
+      })
+      
 
         
 
@@ -837,7 +1080,9 @@ const roomInit = async(roomId) => {
         deliverAllBlocks: {},
         deliverAncestorNeighbors: {},
         deliverBlock: {},
-        forks: {}
+        forks: {},
+        limits:{},
+        ban: []
       }
       blockController.updateChain(roomId)
       room.onPeerJoin(function(id){
@@ -862,7 +1107,7 @@ const roomInit = async(roomId) => {
 
 }
 
-const requireOldMessage = () =>{
+const fetchOldMessage = () =>{
 
 }
 
@@ -880,7 +1125,7 @@ const getOldMessages= async(roomId, id) =>{
               userId: global.user.userId,
               groupId: room.groupId,
               content: {key: 'time', time: room.offline},//从收到最后一条消息的时间开始查询
-              messageType: 'requireOldMessage',
+              messageType: 'fetchOldMessage',
               to: id
             })
           }
@@ -912,12 +1157,21 @@ const pollOldMessagesAll= async() =>{
               userId: global.user.userId,
               groupId: room.groupId,
               content: {key: 'time', time: room.offline},//从收到最后一条消息的时间开始查询
-              messageType: 'requireOldMessage',
+              messageType: 'fetchOldMessage',
             })
           }
           let mess = await ethController.acquireMessage(room.groupId,room.groupId,0)
           console.log(mess)
-          groupApi.receiveGroupMessage(room.groupId, mess, mess.userId)
+          const uiData = {
+            userId:  mess.userId,
+            groupId: room.groupId,
+            content: mess,
+            width: data.width,
+            height: data.height,
+            messageType: data.messageType,
+          }
+          groupApi.receiveGroupMessage(uiData) 
+          
     }
     console.log('1205',global.interval)
   if(global.iterations> 2){

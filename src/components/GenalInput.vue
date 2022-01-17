@@ -14,6 +14,12 @@
                   <div class="message-tool-item-text">图片</div>
                 </div>
               </a-upload>
+              <a-upload :show-upload-list="false" :before-upload="beforeFileUpload">
+                <div class="message-tool-contant">
+                  <img src="~@/assets/file.png" class="message-tool-item-img" alt="" />
+                  <div class="message-tool-item-text">文件</div>
+                </div>
+              </a-upload>
             </div>
           </a-tab-pane>
         </a-tabs>
@@ -242,6 +248,51 @@ export default class GenalInput extends Vue {
   beforeImgUpload(file: File) {
     this.throttle(this.handleImgUpload, file);
     return false;
+  }
+
+  /**
+   * 文件上传校验
+   * @params file
+   */
+  beforeFileUpload(file: File) {
+    this.throttle(this.handleFileUpload, file);
+    return false;
+  }
+
+  /**
+   * 文件消息发送
+   * @params file
+   */
+  async handleFileUpload(imageFile: File) {
+    const isPdfOrDoc =
+      imageFile.type === 'application/pdf' || imageFile.type === 'application/msword' || imageFile.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || imageFile.type === 'application/vnd.ms-powerpoint' || imageFile.type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' || imageFile.type === 'application/vnd.ms-excel' || imageFile.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || imageFile.type === 'text/csv';
+    if (!isPdfOrDoc) {
+      return this.$message.error('请选择pdf/文档/表格/ppt格式的文件!');
+    }
+    const isLt1M = imageFile.size / 1024 / 1024 < 500;
+    if (!isLt1M) {
+      return this.$message.error('文件必须小于500M!');
+    }
+    this.sendMessage({
+        type: this.activeRoom.groupId ? 'group' : 'friend',
+        message: imageFile,
+        width: undefined,
+        height: undefined,
+        messageType: 'file',
+      });
+    // let image = new Image();
+    // let url = window.URL || window.webkitURL;
+    // image.src = url.createObjectURL(imageFile);
+    // image.onload = () => {
+    //   let imageSize: ImageSize = this.getImageSize({ width: image.width, height: image.height });
+    //   this.sendMessage({
+    //     type: this.activeRoom.groupId ? 'group' : 'friend',
+    //     message: imageFile,
+    //     width: imageSize.width,
+    //     height: imageSize.height,
+    //     messageType: 'image',
+    //   });
+    // };
   }
 
   /**

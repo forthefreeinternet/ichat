@@ -83,16 +83,18 @@ activeGroupUser(data){
     return request.post(`${API}/groupnews/lastnews`, data)
   },
 
-  receiveGroupMessage(groupId, message,  userId){
-    store.dispatch('chat/groupMessage', {code: RCode.OK, msg:'', data: {
-      userId: userId,
-      groupId: groupId,
-      content: message,
-      width:undefined,
-      height: undefined,
-      messageType:'text',
-    }})
+  receiveGroupMessage(data){
+    store.dispatch('chat/groupMessage', {code: RCode.OK, msg:'', data:data})
   },
+
+  // {
+  //   userId: userId,
+  //   groupId: groupId,
+  //   content: message,
+  //   width:undefined,
+  //   height: undefined,
+  //   messageType:'text',
+  // }
 
   async getGroupMessages(payload){
     let data = await groupController.getGroupMessages(payload.groupId, payload.current, payload.pageSize)

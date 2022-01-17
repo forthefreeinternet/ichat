@@ -93,7 +93,7 @@ export default class GenalActive extends Vue {
     });
   }
 
-  onCopy(e) {
+  onCopy() {
     this.$message.success(`复制成功`)
   }
 }

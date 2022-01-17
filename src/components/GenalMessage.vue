@@ -23,10 +23,12 @@
             <genal-avatar :data="item"></genal-avatar>
             <div>
               <a class="message-content-text" v-if="_isUrl(item.content)" :href="item.content" target="_blank">{{ item.content }}</a>
+              <a class="message-content-text" v-if="item.messageType === 'file'" :href="item.content" :download="item.name">{{ item.name }}</a>
               <div class="message-content-text" v-text="_parseText(item.content)" v-else-if="item.messageType === 'text'"></div>
-              <div class="message-content-image" v-if="item.messageType === 'image'" :style="getImageStyle(item.content)">
+              <div class="message-content-image" v-if="item.messageType === 'image'" :style="getImageStyle('$'+item.content+'$'+ item.width+'$' + item.height)">
                 <viewer style="display:flex;align-items:center;">
-                  <img :src="'api/static/' + item.content" alt="" />
+                  <!-- <img :src="'api/static/' + item.content" alt="" /> -->
+                  <img :src="item.content" alt="" />
                 </viewer>
               </div>
             </div>
@@ -280,6 +282,7 @@ export default class GenalMessage extends Vue {
    * 根据图片url设置图片框宽高, 注意是图片框
    */
   getImageStyle(src: string) {
+    console.log(src)
     let arr = src.split('$');
     let width = Number(arr[2]);
     let height = Number(arr[3]);
