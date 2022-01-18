@@ -20,6 +20,7 @@ import initController from './init'
 import localforage from 'localforage'
 import Web3 from 'web3'//'./../assets/js/web3.min'
 import utils from './../utils/common'
+import groupController from './group'
 //const Web3 = require('web3');
 // 验证码
 const generatorCode = (req, res) => {
@@ -399,6 +400,8 @@ const register = async(req, res) => {
 //   })
 }
 
+const defaultAvatarUrl = ""
+
 const setUserAvatar = (data) =>{
   
   console.log(data)
@@ -427,6 +430,23 @@ return new Promise((resolve, reject) => {
         // info.avatar = this.result
         // localforage.setItem(global.user.userId , JSON.stringify(info))
         global.user.avatar = this.result
+
+        //通知每一个群
+        for( const roomId in global.roomObjects){
+          let data = {
+            userId: global.user.userId,
+            groupId: roomId,
+            messageType : 'user' ,
+            content : {
+              username: global.user.username,
+              userId: global.user.userId,
+              avatar: global.user.avatar
+            }
+          } 
+          console.log(data)
+          
+          groupController.sendGroupMessage(data)
+        }
         resolve( global.user)
       }
       // reader.onloadend = function(e) {

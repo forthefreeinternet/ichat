@@ -405,16 +405,16 @@ const receiveGroupMessage = async(roomId,data, userId) => {
     console.log('开始验证消息')
     //验证消息开始
     //验证签名
-    let sender
+    let signer
     try{
-      sender = global.web3.eth.accounts.recover(data.hash ,data.signature )
+      signer = global.web3.eth.accounts.recover(data.hash ,data.signature )
     }catch{
       console.log('签名错误')
       return
     }
     console.log('签名正确')
-    data.userId = sender//某些情况下消息可能省略发送者
-    if ( sender != data.userId) {console.log('假签名', sender, userId);return}
+    data.userId = signer//某些情况下消息可能省略发送者
+    if ( signer != data.userId) {console.log('假签名', signer, userId);return}
     //验证个人id，群id及hash值
     //if( data.userId != userId) {console.log('信息的署名错误');return} //不需要是本人发，可以是转发
     if( data.groupId != roomId) {console.log('错群，原消息在', data.groupId, '，发到了', roomId);return}
@@ -436,16 +436,18 @@ const receiveGroupMessage = async(roomId,data, userId) => {
         groupLastMessage = {time: 0}
       }
 
-      let user = await global.db.userRepository
-        .where({ userId: sender })
-        .first()
-      if(!user){
-        user = await fetchUser(roomId, sender)
-        if(user){
-          global.db.userRepository.add(user)
-          initController.getAllData(global.user)
-        }
-      }
+      global.db.userRepository
+        .where({ userId: signer })
+        .first(async function(user){
+          if(!user){
+            user = await fetchUser(roomId, signer)
+            if(user){
+              global.db.userRepository.add(user)
+              initController.getAllData(global.user)
+            }
+          }
+        })
+      
       
       
       //如果收到的消息发送时间在已经保存的最后一条消息之前，则入库后重新获取数据渲染。这是去中心化app的特性，因为收到消息并不及时。
@@ -516,10 +518,10 @@ const receiveGroupMessage = async(roomId,data, userId) => {
       }
 
       let user = await global.db.userRepository
-        .where({ userId: sender })
+        .where({ userId: signer })
         .first()
       if(!user){
-        user = await fetchUser(roomId, sender)
+        user = await fetchUser(roomId, signer)
         if(user){
           global.db.userRepository.add(user)
           initController.getAllData(global.user)
@@ -582,6 +584,13 @@ const receiveGroupMessage = async(roomId,data, userId) => {
         }
       }
       return
+    }
+
+    if(data.messageType == 'user'){
+      if(signer == data.content.userId){
+        console.log('群用户信息更新: ', data.content)
+        global.db.userRepository.put(data.content)
+      }
     }
 
     //接收到索取旧消息的消息，在数据库中查找并发送旧消息
@@ -876,7 +885,15 @@ const sendGroupMessage = async(data) => {
 
     if(data.messageType == 'admin'){
       console.log('发送管理信息', data)
-      global.roomObjects[data.groupId].sendMessage(data) //向其他群成员索取旧消息的消息，不需要入库，直接通过webRTC房间注册的发送函数发送消息
+      global.roomObjects[data.groupId].sendMessage(data) //更改群设置的消息，不需要入库，直接通过webRTC房间注册的发送函数发送消息
+      return data
+    }
+    console.log('发送群用户信息',JSON.stringify(data))
+    console.log('发送群用户信息',data.messageType)
+    console.log('发送群用户信息',(data.messageType == 'user'))
+    if(data.messageType == 'user'){
+      console.log('发送群用户信息', data)
+      global.roomObjects[data.groupId].sendMessage(data) //更改群成员的消息，不需要入库，直接通过webRTC房间注册的发送函数发送消息
       return data
     }
   } 

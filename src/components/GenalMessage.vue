@@ -282,7 +282,6 @@ export default class GenalMessage extends Vue {
    * 根据图片url设置图片框宽高, 注意是图片框
    */
   getImageStyle(src: string) {
-    console.log(src)
     let arr = src.split('$');
     let width = Number(arr[2]);
     let height = Number(arr[3]);
