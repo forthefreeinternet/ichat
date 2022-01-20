@@ -111,7 +111,10 @@ const login = async(req) => {
 
   // let userJSON = localStorage.getItem('user')
   let storageAccount = JSON.parse(localStorage.getItem(username))
-
+  if(storageAccount.avatar == ""){
+    storageAccount.avatar = 'https://github.com/forthefreeinternet/ichat/blob/master/src/assets/wallpaper.png'
+  }
+  console.log(localAccount)
   global.user = {
     username: localAccount.accountName,
     userId : localAccount.accountAddress,       
@@ -294,14 +297,14 @@ const register = async(req, res) => {
   let secPrivateKey = web3.eth.accounts.encrypt(account.privateKey, password)
   //localStorage.setItem($('#js_input').val(), JSON.stringify(this.$web3.eth.accounts.encrypt(account.privateKey, $('#js_input_password').val())));
   let info = {'accountName': accountName, 'accountAddress': accountAddress , 'secPrivateKey': secPrivateKey , 
-  'contactList': {}, role : 'user' , publicId: account2.address , group: [{groupId: '0'}], avatar: ''}
+  'contactList': {}, role : 'user' , publicId: account2.address , group: [{groupId: '0'}], avatar: 'https://github.com/forthefreeinternet/ichat/blob/master/src/assets/wallpaper.png'}
   
   global.user = {
     username: accountName,
     userId : accountAddress,       
     password: password,
     privateKey : account.privateKey,
-    avatar: `api/avatar/avatar(${Math.round(Math.random()*19 +1)}).png`,
+    avatar: 'https://github.com/forthefreeinternet/ichat/blob/master/src/assets/wallpaper.png',
     role: 'user',
     tag: '',
     //createTime: time,
@@ -320,7 +323,7 @@ const register = async(req, res) => {
         userId: accountAddress,
         username: accountName,
         password: password,
-        avatar: `api/avatar/avatar(${Math.round(Math.random()*19 +1)}).png`,
+        avatar: 'https://github.com/forthefreeinternet/ichat/blob/master/src/assets/wallpaper.png',//`api/avatar/avatar(${Math.round(Math.random()*19 +1)}).png`,
         role: 'user',
         tag: '',
         createTime: time,

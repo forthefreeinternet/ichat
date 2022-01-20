@@ -33,6 +33,7 @@
     "vuex": "^3.4.0",
     "vuex-class": "^0.3.2",
     "web3": "^1.6.1",
+    "webtorrent": "^1.6.0",
     "zangodb": "^1.0.8"
   },
   "devDependencies": {

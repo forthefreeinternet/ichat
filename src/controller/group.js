@@ -16,6 +16,7 @@ import { nameVerify } from './../common/tool/utils';
 
 import {joinRoom, selfId} from 'trystero'
 import EthCrypto from 'eth-crypto';
+import WebTorrent from 'webtorrent'
 import SHA256  from 'crypto-js/sha256'
 
 import localforage from 'localforage'
@@ -341,7 +342,7 @@ const joinGroup = async(data) => {
 
 
 //接收同步请求
-const deliverGroupSyncRequest = async(groupId, data, peerId) => {
+const deliverGroupSyncRequest = async(groupId, data, peerId, meta) => {
   switch(data.messageType){
     case 'fetchRecentSkeleton':
       blockController.deliverRecentBlocksRequest(groupId, data.content, peerId)
@@ -371,13 +372,44 @@ const deliverGroupSyncRequest = async(groupId, data, peerId) => {
         peerId)
       }
       break
+    case 'fetchFile':
+      let res = await global.db.fileRepository.where({hash: data.content.hash}).first()
+      if (res){
+        if(res.type == 'blob'){
+          console.log(res.blob)
+          global.roomObjects[groupId].syncRequest(res.blob, peerId, {
+            messageType: 'file',
+            content: {
+                  hash: res.hash,
+                  type: res.type,
+                  //blob: res.blob,
+                  time: res.time,
+                  access: res.access,
+                  name: res.name
+            }
+          })//把meta数据写在后面
+        } 
+      }else{
+        global.roomObjects[groupId].syncRequest({
+          messageType: 'file',
+          content: 'failed'
+        },
+        peerId)
+      }
+      break
+    case 'file':
+      if(meta.content != 'failed'){
+        global.roomObjects[groupId].deliverFile[meta.content.hash](meta.content)
+      }else{
+        //global.roomObjects[groupId].deliverFile[data.content.hash](null)
+      }
     case 'info':
       break
     case 'user':
       if(data.content != 'failed'){
         global.roomObjects[groupId].deliverUser[data.content.userId](data.content)
       }else{
-        global.roomObjects[groupId].deliverUser[data.content.userId](null)
+        //global.roomObjects[groupId].deliverUser[data.content.userId](null)
       }
     case 'recentBlocks':
       blockController.syncTasks[groupId].deliverRecentBlocks[peerId](data.content)
@@ -390,8 +422,16 @@ const deliverGroupSyncRequest = async(groupId, data, peerId) => {
       break
     case 'ancestorNeighbors':
       blockController.syncTasks[groupId].deliverAncestorNeighbors[peerId](data.content)
-      break
-    
+      break 
+  }
+
+  switch(meta.messageType){
+    case 'file':
+      if(meta.content != 'failed'){       
+        global.roomObjects[groupId].deliverFile[meta.content.hash](data)
+      }else{
+        //global.roomObjects[groupId].deliverFile[data.content.hash](null)
+      }
   }
 }
 
@@ -541,7 +581,7 @@ const receiveGroupMessage = async(roomId,data, userId) => {
           const uiData = {
             userId: data.userId,
             groupId: roomId,
-            content: URL.createObjectURL(data.content),
+            content: data.content,
             width: data.width,
             height: data.height,
             messageType: data.messageType,
@@ -623,6 +663,48 @@ const receiveGroupMessage = async(roomId,data, userId) => {
     }
   }
   
+}
+
+const fetchFile = async(data) => {
+  console.log('准备从群', data.groupId, '下载文件', data)
+  global.roomObjects[data.groupId].syncRequest({
+      userId: global.user.userId,
+      groupId: data.groupId,
+      content: {hash: data.content.hash},
+      messageType: 'fetchFile',       
+  })
+  return new Promise(function(resolve, reject){
+    global.roomObjects[data.groupId].deliverFile[data.content.hash] = resolve
+  })
+
+  // let res = await new Promise(function(resolve, reject){
+  //   global.roomObjects[data.groupId].deliverFile[data.content.hash] = resolve
+  // })
+  // if(res){
+  //   console.log('成功从群', data.groupId, '下载到文件', res)
+  //   const blob = new Blob([res],  { type: data.content.type })
+  //   if(true){//res.type == 'blob'){
+  //     let file = new File([ blob ], data.content.name, { type: data.content.type })
+  //     global.roomObjects[data.groupId].torrentClient.seed(file, null, async(torrent) => {
+  //       if( torrent.infoHash == data.content.hash){
+  //         console.log('哈希验证成功')
+  //         global.db.fileRepository.put({
+  //           hash: data.content.hash,
+  //           type: 'blob',
+  //           blob: blob,
+  //           time: data.time,
+  //           access: data.groupId,
+  //           name: data.content.name
+  //         })
+  //         console.log(blob)
+  //         return blob
+  //       }
+  //       else{
+  //         console.log('哈希验证失败')
+  //       }
+  //     })
+  //   }
+  // }
 }
 
 //向上划滚动条时，从数据库获取旧消息记录
@@ -744,44 +826,135 @@ const sendGroupMessage = async(data) => {
       // stream.write(data.content);
       // data.content = randomName;
     }
-    if(data.messageType === 'file') {
-      console.log(data)
-      data.name = data.content.name
-      if(window.FileReader) {
-        var reader = new FileReader();
-      }
-      else {
-        alert("当前浏览器不支持!");
-      }
 
-      try {
-        //var reader = new FileReader()
-        if (data.content) {
-          reader.readAsDataURL(data.content)
-          reader.onload = async function(){
-            console.log(this.result)
-            await fetch(this.result).then(res => res.blob())
-            .then(blob => {
-              console.log('blob: ', blob)
-              data.content = blob
-            })
+
+    if(data.messageType === 'file') {
+      console.log(data.content)
+      data.name = data.content.name
+
+      //根据file对象制作种子文件，获取其哈希值
+      global.roomObjects[data.groupId].torrentClient.seed(data.content, null, async(torrent) => {
+        console.log(torrent.infoHash)
+
+        //检查是否支持filereader
+        if(window.FileReader) {
+          var reader = new FileReader();
+        }
+        else {
+          alert("当前浏览器不支持!");
+        }  
+        try {
+          if (data.content) {
+
+            //将file对象转换为dataURL
+            reader.readAsDataURL(data.content)
+            reader.onload = async function(){
+              console.log(this.result)
+
+              //将dataURL转换为blob对象
+              await fetch(this.result).then(res => res.blob())
+              .then(blob => {
+                console.log('blob: ', blob)
+                //将blob对象保存到文件数据库
+                global.db.fileRepository.put({
+                  hash: torrent.infoHash,
+                  type: 'blob',
+                  blob: blob,
+                  time: data.time,
+                  access: data.groupId,
+                  name: data.content.name,
+                })
+                // global.db.fileRepository.put({
+                //   hash: torrent.infoHash,
+                //   type: 'file',
+                //   file: data.content,
+                //   time: data.time,
+                //   access: data.groupId,
+                //   name: data.content.name,
+                // })
+
+                //实验：看看转换后哈希值会不会变
+                // console.log('实验')
+                // let file = new File([ blob ], data.content.name, { type: data.content.type })
+                // global.roomObjects[data.groupId].torrentClient.seed(file, null, async(torrent) => {console.log(torrent.infoHash)})
+              })
+              
+            }
+            reader.onerror = function() {
+              console.log("load file error")
+            }
             
+          } else {
+            console.log("file not found")
           }
-          reader.onerror = function() {
-            console.log("load file error")
-          }
-          
-        } else {
+        } catch (e) {
           console.log("file not found")
         }
-      } catch (e) {
-        console.log("file not found")
-      }
-      // const randomName = `${Date.now()}$${data.userId}$${data.width}$${data.height}`;
-      // const stream = createWriteStream(join('public/static', randomName));
-      // stream.write(data.content);
-      // data.content = randomName;
+        
+
+        //此时修改data.content为哈希值
+        data.content = {
+          hash: torrent.infoHash,
+          name: data.content.name,
+          type: data.content.type
+        }
+
+        if (!data.time)
+          data.time = Date.now() //new Date.valueOf(); // 使用服务端时间
+        
+        const group = await global.db.groupRepository.where({groupId: data.groupId}).first()
+        
+        data.preHash = group.lastMessage
+        data.hash = global.web3.eth.accounts.hashMessage(group.lastMessage + data.groupId + data.content + data.time)
+        
+        let signatureObject = global.web3.eth.accounts.sign(data.hash, global.user.privateKey);  
+        data.signature = signatureObject.signature
+        //console.log(data)
+
+        global.db.groupMessageRepository.add(data).then(() => {
+          console.log('保存了消息：', data)
+          blockController.updateChain(data.groupId, data.time)
+          console.log('本地发送消息后更新区块')
+        }); //保存到聊天记录数据库
+        
+        
+        await global.db.groupRepository.update(data.groupId, {lastMessage: data.hash})
+            .then(() => console.log('更新当前消息哈希')) //更新自己最后一条消息的id
+        
+  
+        const peers = global.roomObjects[data.groupId].room.getPeers()
+        console.log('群在线用户：', peers )
+        delete data._id
+        //console.log(data)
+        
+        if(peers.length != 0){
+          global.roomObjects[data.groupId].sendMessage(data)  //通过webRTC房间注册的发送函数发送消息
+        }
+        else{
+          //console.log('用以太坊发送消息')
+          //ethController.sendMessage(data.groupId, group.privateKey , data.groupId, data)
+        }
+        
+  
+        //将自己发送的消息经数据接口传输到前端渲染
+        const uiData = {
+          userId:  global.user.userId ,
+          groupId: data.groupId,
+          content: data.content,
+          width: data.width,
+          height: data.height,
+          messageType: data.messageType,
+          name: data.name
+        }
+        groupApi.receiveGroupMessage(uiData) 
+        
+        //this.server.to(data.groupId).emit('groupMessage', {code: RCode.OK, msg:'', data: data});
+
+        return
+      })
+      
     }
+
     if (!data.time)
     data.time = Date.now() //new Date.valueOf(); // 使用服务端时间
     
@@ -835,46 +1008,6 @@ const sendGroupMessage = async(data) => {
       //this.server.to(data.groupId).emit('groupMessage', {code: RCode.OK, msg:'', data: data});
     }
 
-    if( data.messageType === 'file' ){
-      global.db.groupMessageRepository.add(data).then(() => {
-        console.log('保存了消息：', data)
-        blockController.updateChain(data.groupId, data.time)
-        console.log('本地发送消息后更新区块')
-      }); //保存到聊天记录数据库
-      
-      
-      await global.db.groupRepository.update(data.groupId, {lastMessage: data.hash})
-          .then(() => console.log('更新当前消息哈希')) //更新自己最后一条消息的id
-      
-
-      const peers = global.roomObjects[data.groupId].room.getPeers()
-      console.log('群在线用户：', peers )
-      delete data._id
-      //console.log(data)
-      
-      if(peers.length != 0){
-        global.roomObjects[data.groupId].sendMessage(data)  //通过webRTC房间注册的发送函数发送消息
-      }
-      else{
-        //console.log('用以太坊发送消息')
-        //ethController.sendMessage(data.groupId, group.privateKey , data.groupId, data)
-      }
-      
-
-      //将自己发送的消息经数据接口传输到前端渲染
-      const uiData = {
-        userId:  global.user.userId ,
-        groupId: data.groupId,
-        content: URL.createObjectURL(data.content),
-        width: data.width,
-        height: data.height,
-        messageType: data.messageType,
-        name: data.name
-      }
-      groupApi.receiveGroupMessage(uiData) 
-      
-      //this.server.to(data.groupId).emit('groupMessage', {code: RCode.OK, msg:'', data: data});
-    }
 
     
 
@@ -888,9 +1021,7 @@ const sendGroupMessage = async(data) => {
       global.roomObjects[data.groupId].sendMessage(data) //更改群设置的消息，不需要入库，直接通过webRTC房间注册的发送函数发送消息
       return data
     }
-    console.log('发送群用户信息',JSON.stringify(data))
-    console.log('发送群用户信息',data.messageType)
-    console.log('发送群用户信息',(data.messageType == 'user'))
+
     if(data.messageType == 'user'){
       console.log('发送群用户信息', data)
       global.roomObjects[data.groupId].sendMessage(data) //更改群成员的消息，不需要入库，直接通过webRTC房间注册的发送函数发送消息
@@ -1001,10 +1132,13 @@ const roomInit = async(roomId) => {
 
         // register synchronization service
       const [syncRequest, getSyncRequest] = room.makeAction('sync')
-      getSyncRequest(function(message, id){
+      getSyncRequest(function(message, id, meta){
         console.log('webRtc getMessage ' , message , ' from ' + id + '(' + global.roomObjects[roomId].idsToUserIds[id] + ') in ' + roomId)
         if(blockController.syncTasks[roomId].ban.indexOf(id) == -1)
-          deliverGroupSyncRequest(roomId, message, id)
+          deliverGroupSyncRequest(roomId, message, id, meta)
+        else{
+          console.log('该用户已被屏蔽')
+        }
         //receiveGroupMessage(roomId, message, global.roomObjects[roomId].idsToUserIds[id] ) 
       })
 
@@ -1036,6 +1170,7 @@ const roomInit = async(roomId) => {
       console.log(JSON.stringify(global.user))
       idsToNames[selfId] = global.user.username 
       idsToUserIds[selfId] =  global.user.userId
+      const client = new WebTorrent()
       global.roomObjects[roomId] = {room:room,
                   sendMessage: sendMessage,
                   sendPrivateMessage: sendPrivateMessage,
@@ -1048,7 +1183,9 @@ const roomInit = async(roomId) => {
                   idsToUserIds : idsToUserIds,
                   userIdsToIds : {},
                   offline: [],
-                  groupId: roomId
+                  groupId: roomId,
+                  torrentClient: client,
+                  deliverFile: {}
                 }
 
       // register name service
@@ -1268,5 +1405,6 @@ export default {
   receiveGroupMessage,
   sendGroupMessage,
   getGroupMessages,
-  fetchUser
+  fetchUser,
+  fetchFile
 }

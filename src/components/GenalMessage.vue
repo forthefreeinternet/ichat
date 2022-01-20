@@ -23,7 +23,7 @@
             <genal-avatar :data="item"></genal-avatar>
             <div>
               <a class="message-content-text" v-if="_isUrl(item.content)" :href="item.content" target="_blank">{{ item.content }}</a>
-              <a class="message-content-text" v-if="item.messageType === 'file'" :href="item.content" :download="item.name">{{ item.name }}</a>
+              <a class="message-content-text" v-if="item.messageType === 'file'" :href="void(0)" :download="item.name" @click="fetchFile(item)">{{ item.content.name }}</a>
               <div class="message-content-text" v-text="_parseText(item.content)" v-else-if="item.messageType === 'text'"></div>
               <div class="message-content-image" v-if="item.messageType === 'image'" :style="getImageStyle('$'+item.content+'$'+ item.width+'$' + item.height)">
                 <viewer style="display:flex;align-items:center;">
@@ -52,6 +52,8 @@ const appModule = namespace('app');
 import { isUrl, parseText, processReturn } from '@/utils/common';
 // @ts-ignore
 import groupApi from './../api/modules/group'
+// @ts-ignore
+import messageApi from './../api/modules/message'
 
 @Component({
   components: {
@@ -316,6 +318,17 @@ export default class GenalMessage extends Vue {
    */
   _isUrl(text: string) {
     return isUrl(text);
+  }
+
+
+  async fetchFile(message: any){
+    const blob = await messageApi.fetchFile(message)
+    const link = document.createElement('a')
+    let url = URL.createObjectURL(blob)
+    link.href = url
+    link.download = message.content.name
+    link.click()
+    URL.revokeObjectURL(url)
   }
 }
 </script>
