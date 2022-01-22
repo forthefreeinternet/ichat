@@ -3,7 +3,7 @@
     <div class="search-select">
       <a-select
         show-search
-        placeholder="搜索聊天组"
+        placeholder="搜索"
         :default-active-first-option="false"
         :show-arrow="false"
         :filter-option="false"
@@ -23,10 +23,10 @@
             <div @click="() => (visibleAddGroup = !visibleAddGroup)">创建群</div>
           </a-menu-item>
           <a-menu-item>
-            <div @click="() => (visibleJoinGroup = !visibleJoinGroup)">搜索群</div>
+            <div @click="() => (visibleJoinGroup = !visibleJoinGroup)">查找群</div>
           </a-menu-item>
           <a-menu-item>
-            <div @click="() => (visibleAddFriend = !visibleAddFriend)">搜索用户</div>
+            <div @click="() => (visibleAddFriend = !visibleAddFriend)">查找用户</div>
           </a-menu-item>
         </a-menu>
       </a-dropdown>

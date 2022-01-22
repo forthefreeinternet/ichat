@@ -92,6 +92,19 @@ const updateChain = async( groupId, start) => {
             if (oldMessages.length > 0){
                 
                 let messageRoot = generateRoot(oldMessages)  
+                oldMessages = oldMessages.map((message) => {
+                    return {
+                        content: oldMessages.content,
+                        groupId: oldMessages.groupId,
+                        hash: oldMessages.hash,
+                        height: oldMessages.height,
+                        messageType: oldMessages.messageType,                       
+                        signature: oldMessages.signature,
+                        time: oldMessages.time,
+                        userId: oldMessages.userId,
+                        width: oldMessages.width
+                    }
+                })
                 let newNumber = preBlock.number + 1
                 const hash = global.web3.eth.accounts.hashMessage(groupId + preBlock.hash + newNumber + newTime + messageRoot)
                 const newBlock = {

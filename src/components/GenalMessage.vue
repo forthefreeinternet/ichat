@@ -28,7 +28,7 @@
               <div class="message-content-image" v-if="item.messageType === 'image'" :style="getImageStyle('$'+item.content+'$'+ item.width+'$' + item.height)">
                 <viewer style="display:flex;align-items:center;">
                   <!-- <img :src="'api/static/' + item.content" alt="" /> -->
-                  <img :src="item.content" alt="" />
+                  <img :src="item.dataURL" alt="" />
                 </viewer>
               </div>
             </div>
@@ -279,6 +279,36 @@ export default class GenalMessage extends Vue {
       this.messageOpacity = 1;
     });
   }
+
+
+  async getImageURL(message: any){
+    //const blob = await messageApi.fetchFile(message)  
+    console.log(message)
+    let res 
+    var reader = new FileReader();
+
+      try {
+        //var reader = new FileReader()
+        if (message.content.blob) {
+          reader.readAsDataURL(message.content.blob)
+          reader.onload = function(){
+            console.log(this.result)
+            res = this.result
+          }
+          reader.onerror = function() {
+            console.log("load file error")
+          }
+          
+        } else {
+          console.log("file not found")
+        }
+      } catch (e) {
+        console.log("file not found")
+      }
+    //let res = URL.createObjectURL(message.content.blob)
+    return res
+  }
+
 
   /**
    * 根据图片url设置图片框宽高, 注意是图片框

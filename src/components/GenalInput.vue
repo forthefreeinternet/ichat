@@ -266,13 +266,13 @@ export default class GenalInput extends Vue {
   async handleFileUpload(imageFile: File) {
     const isPdfOrDoc =
       imageFile.type === 'application/pdf' || imageFile.type === 'application/msword' || imageFile.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || imageFile.type === 'application/vnd.ms-powerpoint' || imageFile.type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' || imageFile.type === 'application/vnd.ms-excel' || imageFile.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || imageFile.type === 'text/csv';
-    if (!isPdfOrDoc) {
-      return this.$message.error('请选择pdf/文档/表格/ppt格式的文件!');
-    }
+    // if (!isPdfOrDoc) {
+    //   return this.$message.error('请选择pdf/文档/表格/ppt格式的文件!');
+    // }
     const isLt1M = imageFile.size / 1024 / 1024 < 500;
-    if (!isLt1M) {
-      return this.$message.error('文件必须小于500M!');
-    }
+    // if (!isLt1M) {
+    //   return this.$message.error('文件必须小于500M!');
+    // }
     this.sendMessage({
         type: this.activeRoom.groupId ? 'group' : 'friend',
         message: imageFile,
@@ -305,9 +305,10 @@ export default class GenalInput extends Vue {
     if (!isJpgOrPng) {
       return this.$message.error('请选择jpeg/jpg/png/gif格式的图片!');
     }
-    const isLt1M = imageFile.size / 1024 / 1024 < 0.5;
+    const isLt1M = imageFile.size / 1024 / 1024 < 10//0.5;
     if (!isLt1M) {
-      return this.$message.error('图片必须小于500K!');
+      this.handleFileUpload(imageFile)
+      return //this.$message.error('图片必须小于500K!');
     }
     let image = new Image();
     let url = window.URL || window.webkitURL;

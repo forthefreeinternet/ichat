@@ -115,31 +115,32 @@ const fetchFile = async(data) => {
     res = await groupController.fetchFile(data)
     if(res){
       console.log('成功从群', data.groupId, '下载到文件', res)
-      const blob = new Blob([res],  { type: data.content.type })
-      if(true){//res.type == 'blob'){
-        let file = new File([ blob ], data.content.name, { type: data.content.type })
-        return new Promise(function(resolve, reject){
-          global.roomObjects[data.groupId].torrentClient.seed(file, null, async(torrent) => {
-            if( torrent.infoHash == data.content.hash){
-              console.log('哈希验证成功')
-              global.db.fileRepository.put({
-                hash: data.content.hash,
-                type: 'blob',
-                blob: blob,
-                time: data.time,
-                access: data.groupId,
-                name: data.content.name
-              })
-              console.log(blob)
-              resolve(blob)
-            }
-            else{
-              console.log('哈希验证失败')
-            }
-          })
-        })
+      return res
+      // const blob = new Blob([res],  { type: data.content.type })
+      // if(true){//res.type == 'blob'){
+      //   let file = new File([ blob ], data.content.name, { type: data.content.type })
+      //   return new Promise(function(resolve, reject){
+      //     global.roomObjects[data.groupId].torrentClient.seed(file, null, async(torrent) => {
+      //       if( torrent.infoHash == data.content.hash){
+      //         console.log('哈希验证成功')
+      //         global.db.fileRepository.put({
+      //           hash: data.content.hash,
+      //           type: 'blob',
+      //           blob: blob,
+      //           time: data.time,
+      //           access: data.groupId,
+      //           name: data.content.name
+      //         })
+      //         console.log(blob)
+      //         resolve(blob)
+      //       }
+      //       else{
+      //         console.log('哈希验证失败')
+      //       }
+      //     })
+      //   })
         
-      }
+      // }
     }
     
   }
