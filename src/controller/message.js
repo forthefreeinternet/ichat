@@ -107,44 +107,73 @@ const fetchFile = async(data) => {
     console.log('从本地数据库中找到文件', res)
     if(res.type == 'blob'){  
       console.log(res.blob)
-      return res.blob
+      const file = new File([ res.blob ], data.content.name, { type: data.content.type })
+      if(data.groupId){
+        for(const torrent of global.roomObjects[data.groupId].torrentClient.torrents){
+          
+            if (torrent.infoHash == data.content.hash){
+              global.roomObjects[data.groupId].torrentClient.remove(torrent.infoHash)
+            }
+          
+        }
+        return new Promise((resolve, reject) => {
+          global.roomObjects[data.groupId].torrentClient.seed(file, null, async(torrent) => {
+            console.log(torrent.files[0])
+            resolve(torrent.files[0])
+          })
+        })
+      }
+      
+      //return res.blob
     }
   }
-
-  if(data.groupId){
-    res = await groupController.fetchFile(data)
-    if(res){
-      console.log('成功从群', data.groupId, '下载到文件', res)
-      return res
-      // const blob = new Blob([res],  { type: data.content.type })
-      // if(true){//res.type == 'blob'){
-      //   let file = new File([ blob ], data.content.name, { type: data.content.type })
-      //   return new Promise(function(resolve, reject){
-      //     global.roomObjects[data.groupId].torrentClient.seed(file, null, async(torrent) => {
-      //       if( torrent.infoHash == data.content.hash){
-      //         console.log('哈希验证成功')
-      //         global.db.fileRepository.put({
-      //           hash: data.content.hash,
-      //           type: 'blob',
-      //           blob: blob,
-      //           time: data.time,
-      //           access: data.groupId,
-      //           name: data.content.name
-      //         })
-      //         console.log(blob)
-      //         resolve(blob)
-      //       }
-      //       else{
-      //         console.log('哈希验证失败')
-      //       }
-      //     })
-      //   })
+  else{
+    if(data.groupId){
+      res = await groupController.fetchFile(data)
+      if(res){
+        console.log('成功从群', data.groupId, '下载到文件', res)
+        res.getBlob((err, blob)=>{
+          global.db.fileRepository.put({
+            hash: data.content.hash,
+            type: 'blob',
+            blob: blob,
+            time: data.time,
+            access: data.groupId,
+            name: data.content.name,
+          })
+        })
         
-      // }
-    }
-    
-  }
 
+        return res
+        // const blob = new Blob([res],  { type: data.content.type })
+        // if(true){//res.type == 'blob'){
+        //   let file = new File([ blob ], data.content.name, { type: data.content.type })
+        //   return new Promise(function(resolve, reject){
+        //     global.roomObjects[data.groupId].torrentClient.seed(file, null, async(torrent) => {
+        //       if( torrent.infoHash == data.content.hash){
+        //         console.log('哈希验证成功')
+        //         global.db.fileRepository.put({
+        //           hash: data.content.hash,
+        //           type: 'blob',
+        //           blob: blob,
+        //           time: data.time,
+        //           access: data.groupId,
+        //           name: data.content.name
+        //         })
+        //         console.log(blob)
+        //         resolve(blob)
+        //       }
+        //       else{
+        //         console.log('哈希验证失败')
+        //       }
+        //     })
+        //   })
+          
+        // }
+      }
+      
+    }
+  }
   
 }
 

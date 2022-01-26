@@ -23,8 +23,37 @@
             <genal-avatar :data="item"></genal-avatar>
             <div>
               <a class="message-content-text" v-if="_isUrl(item.content)" :href="item.content" target="_blank">{{ item.content }}</a>
-              <a class="message-content-text" v-if="item.messageType === 'file'" :href="void(0)" :download="item.name" @click="fetchFile(item)">{{ item.content.name }}</a>
               <div class="message-content-text" v-text="_parseText(item.content)" v-else-if="item.messageType === 'text'"></div>
+              <a class="message-content-text" v-if="item.messageType === 'file'" :href="void(0)" :download="item.content.name" @click="fetchFile(item)">{{ item.content.name }}</a>
+              <div :id ="'hero' + item.hash" v-if="item.messageType === 'file'">
+                <div :id="'output' + item.hash">
+                  <div id="progressBar"></div>
+                  <!-- The video player will be added here -->
+                </div>
+
+                <!-- Statistics -->
+                <div id="status" >
+                  <div>
+                    <a class="message-content-text" :href="void(0)" :download="item.content.name" @click="fetchFile(item)">预览</a>
+                    <a class="message-content-text" :href="void(0)" :download="item.content.name" @click="downloadFile(item)">保存到本地</a>
+                    <span class="show-leech">Downloading </span>
+                    <span class="show-seed">Seeding </span>
+                    <code :id="'streamedFileName'+ item.hash" v-if="isViewed[item.hash]">{{item.content.name}}</code>
+                    <span class="show-leech"> from </span>
+                    <span class="show-seed"> to </span>
+                    <code :id="'numPeers'+ item.hash">0 peers</code>
+                  </div>
+
+                  <div>
+                    <code :id="'downloaded'+ item.hash"></code> of <code :id="'total'+ item.hash"></code> - <span id="remaining"></span>
+                  </div>
+
+                  <div>
+                    &#x2193; <code :id="'downloadSpeed'+ item.hash">0 b/s</code> / <code :id="'uploadSpeed'+ item.hash">0 b/s</code> &#x2191;
+                  </div>
+                </div>
+              </div>
+              
               <div class="message-content-image" v-if="item.messageType === 'image'" :style="getImageStyle('$'+item.content+'$'+ item.width+'$' + item.height)">
                 <viewer style="display:flex;align-items:center;">
                   <!-- <img :src="'api/static/' + item.content" alt="" /> -->
@@ -87,6 +116,9 @@ export default class GenalMessage extends Vue {
   pageSize: number = 30;
   isNoData: boolean = false;
   lastTime: number = 0;
+  isViewed: Object = {'o': false};
+  isAllViewed: boolean =false;
+  files: Object = {};
 
   mounted() {
     this.messageDom = document.getElementsByClassName('message-main')[0] as HTMLElement;
@@ -123,6 +155,14 @@ export default class GenalMessage extends Vue {
       this.activeRoom.messages = this.activeRoom.messages.splice(this.activeRoom.messages.length - 30, 30) as GroupMessage[] &
         FriendMessage[];
     }
+    //这里初始化文件消息的相关变量
+    this.isViewed = {}
+    for( const message of this.activeRoom.messages){
+      if(message.messageType == 'file'){
+        this.isViewed[message.hash] = false
+      }
+    }
+    console.log(this.isViewed)
     this.scrollToBottom();
   }
 
@@ -132,6 +172,14 @@ export default class GenalMessage extends Vue {
   @Watch('activeRoom.messages', { deep: true })
   changeMessages() {
     console.log(this.activeRoom.messages)
+    //这里初始化文件消息的相关变量
+    this.isViewed = {}
+    for( const message of this.activeRoom.messages){
+      if(message.messageType == 'file'){
+        this.isViewed[message.hash] = false
+      }
+    }
+    console.log(this.isViewed)
     if (this.needScrollToBottom) {
       this.addMessage();
     }
@@ -351,18 +399,77 @@ export default class GenalMessage extends Vue {
   }
 
 
+  // @ts-ignore
   async fetchFile(message: any){
-    const blob = await messageApi.fetchFile(message)
-    const link = document.createElement('a')
-    let url = URL.createObjectURL(blob)
-    link.href = url
-    link.download = message.content.name
-    link.click()
-    URL.revokeObjectURL(url)
+    // const blob = await messageApi.fetchFile(message)
+    // const link = document.createElement('a')
+    // let url = URL.createObjectURL(blob)
+    // link.href = url
+    // link.download = message.content.name
+    // link.click()
+    // URL.revokeObjectURL(url)
+    console.log(this.isViewed[message.hash])
+    this.isViewed[message.hash] = true
+    this.isViewed['o'] = true
+    const file = await messageApi.fetchFile(message)
+    console.log('ceshi', message.hash)
+    console.log(this.isViewed[message.hash])
+    this.files[message.hash] = file
+    
+    
+    this.isAllViewed = true
+    // var hero = document.getElementById("hero" + message.hash)
+    // hero.style.display = "block"
+    console.log('传输到前端', file)
+    const streamedFileName = '#streamedFileName' + message.hash
+    //$(streamedFileName).html()
+    const preview = '#output' + message.hash
+    file.appendTo(preview)
+    //this.scrollToBottom();
+  }
+
+  _isViewed(hash: string){
+    console.log(hash)
+    if(this.files[hash]){
+      return true
+    }
+  }
+
+  async downloadFile(message: any){
+    if (this.files[message.hash]){
+      this.files[message.hash].getBlobURL((err: string, url: string)=>{
+        const link = document.createElement('a')
+        link.href = url
+        link.download = this.files[message.hash].name
+        link.click()
+        URL.revokeObjectURL(url)
+      })
+    }
+    else{
+      await this.fetchFile(message)
+      this.downloadFile(message)
+    }
+    
   }
 }
 </script>
 <style lang="scss" scoped>
+#hero {
+    background-color: #2a3749;
+}
+#output video {
+  width: 600px;
+}
+#progressBar {
+    height: 5px;
+    width: 0%;
+    background-color: #35b44f;
+    transition: width .4s ease-in-out;
+}
+.output {
+  width: 600px;
+}
+body
 .message {
   overflow: hidden;
   height: 100%;

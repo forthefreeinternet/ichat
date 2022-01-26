@@ -2,6 +2,7 @@ import Web3 from 'web3'
 import groupApi from './../api/modules/group'
 import initController from './init'
 import ethController from './eth'
+import utilsController from './utils'
 import blockController from './block'
 import messageController from './message'
 import global from './global'
@@ -376,29 +377,43 @@ const deliverGroupSyncRequest = async(groupId, data, peerId, meta) => {
       }
       break
     case 'fetchFile':
-      let res = await global.db.fileRepository.where({hash: data.content.hash}).first()
-      if (res){
-        if(res.type == 'blob'){
-          console.log(res.blob)
-          global.roomObjects[groupId].syncRequest(res.blob, peerId, {
-            messageType: 'file',
-            content: {
-                  hash: res.hash,
-                  type: res.blob.type,
-                  //blob: res.blob,
-                  time: res.time,
-                  access: res.access,
-                  name: res.name
-            }
-          })//把meta数据写在后面
-        } 
-      }else{
-        global.roomObjects[groupId].syncRequest({
-          messageType: 'file',
-          content: 'failed'
-        },
-        peerId)
+      //这里应该首先检查一下自己的peerId是不是离文件infoHash比较近的，否则群用户多的话会消耗太多资源
+      let distance = utilsController.XOR(global.web3.eth.accounts.hashMessage(global.roomObjects[groupId].selfId) , global.web3.eth.accounts.hashMessage(data.content.hash))
+      console.log('和群成员索取的文件的距离', distance, parseInt(global.web3.eth.accounts.hashMessage(global.roomObjects[groupId].selfId), 16).toString(2), parseInt(global.web3.eth.accounts.hashMessage(data.content.hash),16).toString(2), global.web3.eth.accounts.hashMessage(global.roomObjects[groupId].selfId))
+      let rank = 1
+      for ( const peerId of global.roomObjects[groupId].room.getPeers()){
+        if (utilsController.leq(utilsController.XOR(global.web3.eth.accounts.hashMessage(peerId),global.web3.eth.accounts.hashMessage(data.content.hash)), distance)){
+          rank ++
+        }
       }
+      console.log('和群成员索取的文件的距离排名', rank)
+      if (false){//rank < 4){
+        let res = await global.db.fileRepository.where({hash: data.content.hash}).first()
+        if (res){
+          if(res.type == 'blob'){
+            console.log(res.blob)
+            global.roomObjects[groupId].syncRequest(res.blob, peerId, {
+              messageType: 'file',
+              content: {
+                    hash: res.hash,
+                    type: res.blob.type,
+                    //blob: res.blob,
+                    time: res.time,
+                    access: res.access,
+                    name: res.name
+              }
+            })//把meta数据写在后面
+          } 
+        }else{
+          global.roomObjects[groupId].syncRequest({
+            messageType: 'file',
+            content: 'failed'
+          },
+          peerId)
+        }
+      }
+
+      
       break
     case 'file':
       if(data.content == 'failed'){
@@ -437,8 +452,19 @@ const deliverGroupSyncRequest = async(groupId, data, peerId, meta) => {
           if(global.roomObjects[groupId].deliverFile[meta.content.hash]){
             const blob = new Blob([data],  { type: meta.content.type })
             const file = new File([ blob ], meta.content.name, { type: meta.content.type })
-
-            global.roomObjects[groupId].torrentClient.seed(file, null, async(torrent) => {
+            const client = new WebTorrent()
+            // //如果已经在做种了，会导致seed方法的回调函数不运行，因此要先看一下名字有没有重合
+            // for(const torrent of global.roomObjects[groupId].torrentClient.torrents){
+            //   for (const file of torrent.files){
+            //     if (file.name == data.content.name){
+            //       // let oldName = data.content.name.split('.')
+            //       // oldName[oldName.length-2] = oldName[oldName.length-2] + '(1)'
+            //       // data.content.name = oldName.join('.')
+            //       global.roomObjects[data.groupId].torrentClient.remove(torrent.infoHash)
+            //     }
+            //   }
+            // }
+            client.seed(file, null, async(torrent) => {
               if( torrent.infoHash == meta.content.hash){
                 console.log('哈希验证成功')
                 global.db.fileRepository.put({
@@ -450,7 +476,7 @@ const deliverGroupSyncRequest = async(groupId, data, peerId, meta) => {
                   name: meta.content.name
                 })
                 console.log(blob)
-                global.roomObjects[groupId].deliverFile[meta.content.hash](blob)//resolve(blob)                  
+                global.roomObjects[groupId].deliverFile[meta.content.hash](torrent.files[0])//blob)                 
               }
               else{
                 console.log('哈希验证失败')
@@ -551,6 +577,7 @@ const receiveGroupMessage = async(roomId,data, userId) => {
                       width: data.width,
                       height: data.height,
                       messageType: data.messageType,
+                      hash: data.hash
                     }
                     groupApi.receiveGroupMessage(uiData) //调用前端函数进行渲染
                   }).catch(function (err) {
@@ -653,6 +680,7 @@ const receiveGroupMessage = async(roomId,data, userId) => {
             width: data.width,
             height: data.height,
             messageType: data.messageType,
+            hash: data.hash
           }
           groupApi.receiveGroupMessage(uiData) //调用前端函数进行渲染
         }).catch(function (err) {
@@ -736,6 +764,7 @@ const receiveGroupMessage = async(roomId,data, userId) => {
             width: data.width,
             height: data.height,
             messageType: data.messageType,
+            hash: data.hash
           }
           groupApi.receiveGroupMessage(uiData) //调用前端函数进行渲染
         }).catch(function (err) {
@@ -826,8 +855,35 @@ const receiveGroupMessage = async(roomId,data, userId) => {
 }
 
 const fetchFile = async(data) => {
-  if(data.content.size < 1000 * 1000 * 1000){
+  if(true){//data.content.size < 1000 * 1000 * 1000){
     console.log('准备从群', data.groupId, '下载文件', data)
+    const client = new WebTorrent()
+    //data.content.hash = 'https://ferrolho.github.io/magnet-player/#76ac8abef62ea2fc4c6cb0a8a1dc9a535e78ca7d'
+    console.log(data.content.hash)
+    var announceList = [
+      ['udp://tracker.openbittorrent.com:80'],
+      ['udp://tracker.internetwarriors.net:1337'],
+      ['udp://tracker.leechers-paradise.org:6969'],
+      ['udp://tracker.coppersurfer.tk:6969'],
+      ['udp://exodus.desync.com:6969'],
+      ['wss://tracker.webtorrent.io'],
+      ['wss://tracker.btorrent.xyz'],
+      ['wss://tracker.openwebtorrent.com'],
+      ['wss://tracker.fastcast.nz']
+      ]
+      
+      //global.WEBTORRENT_ANNOUNCE 
+      announceList = announceList
+      .map(function (arr) {
+        return arr[0]
+      })
+      .filter(function (url) {
+        return url.indexOf('wss://') === 0 || url.indexOf('ws://') === 0
+      })
+    client.add(data.content.hash.trim(), {announce: announceList},function(torrent){
+      console.log('找到做种人', torrent.files[0])
+      global.roomObjects[data.groupId].deliverFile[data.content.hash](torrent.files[0])
+    })
     global.roomObjects[data.groupId].syncRequest({
         userId: global.user.userId,
         groupId: data.groupId,
@@ -836,6 +892,7 @@ const fetchFile = async(data) => {
     })
     return new Promise(function(resolve, reject){
       global.roomObjects[data.groupId].deliverFile[data.content.hash] = resolve
+      
     })
   }
   else{
@@ -965,21 +1022,21 @@ const sendGroupMessage = async(data) => {
       console.log(data.content)
       data.name = data.content.name
 
-      //如果已经在做种了，会导致seed方法的回调函数不运行，因此要先看一下名字有没有重合
-      for(const torrent of global.roomObjects[data.groupId].torrentClient.torrents){
-        for (const file of torrent.files){
-          if (file.name == data.content.name){
-            // let oldName = data.content.name.split('.')
-            // oldName[oldName.length-2] = oldName[oldName.length-2] + '(1)'
-            // data.content.name = oldName.join('.')
-            global.roomObjects[data.groupId].torrentClient.remove(torrent.infoHash)
-          }
-        }
-      }
-      
+      // //如果已经在做种了，会导致seed方法的回调函数不运行，因此要先看一下名字有没有重合
+      // for(const torrent of global.roomObjects[data.groupId].torrentClient.torrents){
+      //   for (const file of torrent.files){
+      //     if (file.name == data.content.name){
+      //       // let oldName = data.content.name.split('.')
+      //       // oldName[oldName.length-2] = oldName[oldName.length-2] + '(1)'
+      //       // data.content.name = oldName.join('.')
+      //       global.roomObjects[data.groupId].torrentClient.remove(torrent.infoHash)
+      //     }
+      //   }
+      // }
+      const client = new WebTorrent()
       var clientBlob
       //根据file对象制作种子文件，获取其哈希值
-      global.roomObjects[data.groupId].torrentClient.seed(data.content, null, async(torrent) => {
+      client.seed(data.content, null, async(torrent) => {
         console.log(torrent.infoHash)
 
         
@@ -1064,7 +1121,8 @@ const sendGroupMessage = async(data) => {
                   width: data.width,
                   height: data.height,
                   messageType: data.messageType,
-                  name: data.name
+                  name: data.name,
+                  hash: data.hash
                 }
                 groupApi.receiveGroupMessage(uiData) 
                 
@@ -1092,21 +1150,22 @@ const sendGroupMessage = async(data) => {
       console.log(data.content)
       data.name = data.content.name
 
-      //如果已经在做种了，会导致seed方法的回调函数不运行，因此要先看一下名字有没有重合
-      for(const torrent of global.roomObjects[data.groupId].torrentClient.torrents){
-        for (const file of torrent.files){
-          if (file.name == data.content.name){
-            // let oldName = data.content.name.split('.')
-            // oldName[oldName.length-2] = oldName[oldName.length-2] + '(1)'
-            // data.content.name = oldName.join('.')
-            global.roomObjects[data.groupId].torrentClient.remove(torrent.infoHash)
-          }
-        }
-      }
+      // //如果已经在做种了，会导致seed方法的回调函数不运行，因此要先看一下名字有没有重合
+      // for(const torrent of global.roomObjects[data.groupId].torrentClient.torrents){
+      //   for (const file of torrent.files){
+      //     if (file.name == data.content.name){
+      //       // let oldName = data.content.name.split('.')
+      //       // oldName[oldName.length-2] = oldName[oldName.length-2] + '(1)'
+      //       // data.content.name = oldName.join('.')
+      //       global.roomObjects[data.groupId].torrentClient.remove(torrent.infoHash)
+      //     }
+      //   }
+      // }
       
       var clientBlob
       //根据file对象制作种子文件，获取其哈希值
-      global.roomObjects[data.groupId].torrentClient.seed(data.content, null, async(torrent) => {
+      const client = new WebTorrent()
+      client.seed(data.content, null, async(torrent) => {
         console.log(torrent.infoHash)
 
         
@@ -1240,7 +1299,8 @@ const sendGroupMessage = async(data) => {
           width: data.width,
           height: data.height,
           messageType: data.messageType,
-          name: data.name
+          name: data.name,
+          hash: data.hash
         }
         groupApi.receiveGroupMessage(uiData) 
         
@@ -1327,6 +1387,7 @@ const sendGroupMessage = async(data) => {
         width: data.width,
         height: data.height,
         messageType: data.messageType,
+        hash: data.hash
       }
       groupApi.receiveGroupMessage(uiData) 
       
@@ -1413,6 +1474,7 @@ const sendGroupPrivateMessage = async(data) => {
         width: data.width,
         height: data.height,
         messageType: data.messageType,
+        hash: data.hash
       }
       groupApi.receiveGroupMessage(uiData)  
       
@@ -1498,6 +1560,7 @@ const roomInit = async(roomId) => {
       idsToUserIds[selfId] =  global.user.userId
       const client = new WebTorrent()
       global.roomObjects[roomId] = {room:room,
+                  selfId: selfId,
                   sendMessage: sendMessage,
                   sendPrivateMessage: sendPrivateMessage,
                   sendFile: sendFile,
@@ -1511,7 +1574,8 @@ const roomInit = async(roomId) => {
                   offline: [],
                   groupId: roomId,
                   torrentClient: client,
-                  deliverFile: {}
+                  deliverFile: {},
+                  clients:[]
                 }
 
       // register name service
@@ -1649,6 +1713,7 @@ const pollOldMessagesAll= async() =>{
             width: data.width,
             height: data.height,
             messageType: data.messageType,
+            hash: data.hash
           }
           groupApi.receiveGroupMessage(uiData) 
           
