@@ -11,6 +11,7 @@ import chatApi from './../api/modules/chat'
 import Dexie from "dexie";
 import db from './db'
 import global from './global';
+import utilsController from './utils'
 import Web3 from 'web3'
 
 export
@@ -89,6 +90,14 @@ const friendMap=  await db.friendRepository.where({userId: user.userId}).toArray
       .toArray();
       console.log(groupMessage)
       groupMessage = groupMessage.reverse();
+
+      //解密
+      groupMessage.map((message) => {
+        let data = message
+        data.content = utilsController.decodeXOR(message.content, message.groupId + message.time)
+        return data
+      })
+
       // 这里获取一下发消息的用户的用户信息
       for(const message of groupMessage) {
         if(!userGather[message.userId]) {

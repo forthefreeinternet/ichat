@@ -70,13 +70,21 @@ const getRecentConversation = async (req, res) => {
 }
 
 // 在同意之后添加好友
+// const addFriend = (data) => {
+//   FRIEND.find(data).then(doc => {
+//     if (doc.length === 0) {
+//       FRIEND.insertMany(data)      
+//     }
+//   })
+// }
 const addFriend = (data) => {
-  FRIEND.find(data).then(doc => {
-    if (doc.length === 0) {
-      FRIEND.insertMany(data)      
-    }
-  })
-}
+    
+    FRIEND.find(data).then(doc => {
+      if (doc.length === 0) {
+        FRIEND.insertMany(data)      
+      }
+    })
+  }
 
 const deleteFriend = async (req, res) => {
   try {
@@ -112,6 +120,9 @@ const deleteFriend = async (req, res) => {
     })
   }
 }
+
+
+
 
 module.exports = {
   getMyFriends,

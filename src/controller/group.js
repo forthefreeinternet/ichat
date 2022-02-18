@@ -377,6 +377,16 @@ const deliverGroupSyncRequest = async(groupId, data, peerId, meta) => {
       }
       break
     case 'fetchFile':
+      //做种
+      let res = await global.db.fileRepository.where({hash: data.content.hash}).first()
+      const client = new WebTorrent()
+      const blob = new Blob([res.blob],  { type: data.content.type })
+      const file = new File([ blob ], data.content.name, { type: data.content.type })
+      client.seed(file,null,(torrent) => {
+        console.log('收到文件请求，开始做种')
+      })
+
+      //直接发
       //这里应该首先检查一下自己的peerId是不是离文件infoHash比较近的，否则群用户多的话会消耗太多资源
       let distance = utilsController.XOR(global.web3.eth.accounts.hashMessage(global.roomObjects[groupId].selfId) , global.web3.eth.accounts.hashMessage(data.content.hash))
       console.log('和群成员索取的文件的距离', distance, parseInt(global.web3.eth.accounts.hashMessage(global.roomObjects[groupId].selfId), 16).toString(2), parseInt(global.web3.eth.accounts.hashMessage(data.content.hash),16).toString(2), global.web3.eth.accounts.hashMessage(global.roomObjects[groupId].selfId))
@@ -387,8 +397,10 @@ const deliverGroupSyncRequest = async(groupId, data, peerId, meta) => {
         }
       }
       console.log('和群成员索取的文件的距离排名', rank)
-      if (false){//rank < 4){
-        let res = await global.db.fileRepository.where({hash: data.content.hash}).first()
+
+      //为了避免网络堵塞，离文件哈希距离较近的用户才会发送文件
+      if (rank < 4){
+        
         if (res){
           if(res.type == 'blob'){
             console.log(res.blob)
@@ -453,6 +465,8 @@ const deliverGroupSyncRequest = async(groupId, data, peerId, meta) => {
             const blob = new Blob([data],  { type: meta.content.type })
             const file = new File([ blob ], meta.content.name, { type: meta.content.type })
             const client = new WebTorrent()
+            global.roomObjects[groupId].uploadClients.push(client)
+            global.roomObjects[groupId].clients.push(client)
             // //如果已经在做种了，会导致seed方法的回调函数不运行，因此要先看一下名字有没有重合
             // for(const torrent of global.roomObjects[groupId].torrentClient.torrents){
             //   for (const file of torrent.files){
@@ -507,6 +521,7 @@ const receiveGroupMessage = async(roomId,data, userId) => {
     //验证消息开始
     //验证签名
     let signer
+    
     try{
       signer = global.web3.eth.accounts.recover(data.hash ,data.signature )
     }catch{
@@ -551,65 +566,115 @@ const receiveGroupMessage = async(roomId,data, userId) => {
         })
 
        
-        let blob = await messageController.fetchFile(data)
-        
-          try {
-            var reader = new FileReader()
-            if (blob) {
-              reader.readAsDataURL(blob)
-              reader.onload = async function(){
-                console.log(this.result)
-                data.dataURL = this.result
+        let blob
+        if (data.dataURL){
+          console.log('消息里自带了图片dataURL')
+          //如果收到的消息发送时间在已经保存的最后一条消息之前，则入库后重新获取数据渲染。这是去中心化app的特性，因为收到消息并不及时。
+          console.log(data.time , '大于还是小于？', groupLastMessage.time)
+          if(data.time > groupLastMessage.time){
+            //存储到聊天记录数据库
+            global.db.groupMessageRepository.add( data ).then(() => {
+              console.log('保存了消息：', data)
+              blockController.updateChain(roomId, data.time)
+              console.log('前端渲染')
+              const uiData = {
+                userId: data.userId,
+                groupId: roomId,
+                content: data.content,
+                dataURL: data.dataURL,
+                width: data.width,
+                height: data.height,
+                messageType: data.messageType,
+                hash: data.hash
+              }
+              groupApi.receiveGroupMessage(uiData) //调用前端函数进行渲染
+            }).catch(function (err) {
+              return console.log(data, '聊天记录存储错误' ,err);
+            });
+          }
+          else{
+            global.db.groupMessageRepository.add( data ).then(()=>
+            {
+              console.log('保存了旧消息：', data)
+              blockController.updateChain(roomId, data.time)
+              initController.getAllData(global.user)
+              // console.log('前端渲染')
+              // groupApi.receiveGroupMessage(roomId,data.content, userId) //调用前端函数进行渲染
+            
+            }
+            ).catch(function (err) {
+              return console.log('聊天记录存储错误' ,err);
+            });
+            
+          }
+        }
+        else{
+          const file = await messageController.fetchFile(data)
+          await file.getBlob((err, res)=> {
+            blob = res
+            console.log('从远程自动获取了图片blob！')
+            console.log(blob)
+            try {
+              var reader = new FileReader()
+              if (blob) {
+                reader.readAsDataURL(blob)
+                reader.onload = async function(){
+                  console.log(this.result)
+                  data.dataURL = this.result
 
-                //如果收到的消息发送时间在已经保存的最后一条消息之前，则入库后重新获取数据渲染。这是去中心化app的特性，因为收到消息并不及时。
-                console.log(data.time , '大于还是小于？', groupLastMessage.time)
-                if(data.time > groupLastMessage.time){
-                  //存储到聊天记录数据库
-                  global.db.groupMessageRepository.add( data ).then(() => {
-                    console.log('保存了消息：', data)
-                    blockController.updateChain(roomId, data.time)
-                    console.log('前端渲染')
-                    const uiData = {
-                      userId: data.userId,
-                      groupId: roomId,
-                      content: data.content,
-                      dataURL: data.dataURL,
-                      width: data.width,
-                      height: data.height,
-                      messageType: data.messageType,
-                      hash: data.hash
-                    }
-                    groupApi.receiveGroupMessage(uiData) //调用前端函数进行渲染
-                  }).catch(function (err) {
-                    return console.log(data, '聊天记录存储错误' ,err);
-                  });
-                }
-                else{
-                  global.db.groupMessageRepository.add( data ).then(()=>
-                  {
-                    console.log('保存了旧消息：', data)
-                    blockController.updateChain(roomId, data.time)
-                    initController.getAllData(global.user)
-                    // console.log('前端渲染')
-                    // groupApi.receiveGroupMessage(roomId,data.content, userId) //调用前端函数进行渲染
-                  
+                  //如果收到的消息发送时间在已经保存的最后一条消息之前，则入库后重新获取数据渲染。这是去中心化app的特性，因为收到消息并不及时。
+                  console.log(data.time , '大于还是小于？', groupLastMessage.time)
+                  if(data.time > groupLastMessage.time){
+                    //存储到聊天记录数据库
+                    global.db.groupMessageRepository.add( data ).then(() => {
+                      console.log('保存了消息：', data)
+                      blockController.updateChain(roomId, data.time)
+                      console.log('前端渲染')
+                      const uiData = {
+                        userId: data.userId,
+                        groupId: roomId,
+                        content: data.content,
+                        dataURL: data.dataURL,
+                        width: data.width,
+                        height: data.height,
+                        messageType: data.messageType,
+                        hash: data.hash
+                      }
+                      groupApi.receiveGroupMessage(uiData) //调用前端函数进行渲染
+                    }).catch(function (err) {
+                      return console.log(data, '聊天记录存储错误' ,err);
+                    });
                   }
-                  ).catch(function (err) {
-                    return console.log('聊天记录存储错误' ,err);
-                  });
-                  
+                  else{
+                    global.db.groupMessageRepository.add( data ).then(()=>
+                    {
+                      console.log('保存了旧消息：', data)
+                      blockController.updateChain(roomId, data.time)
+                      initController.getAllData(global.user)
+                      // console.log('前端渲染')
+                      // groupApi.receiveGroupMessage(roomId,data.content, userId) //调用前端函数进行渲染
+                    
+                    }
+                    ).catch(function (err) {
+                      return console.log('聊天记录存储错误' ,err);
+                    });
+                    
+                  }
                 }
+                reader.onerror = function() {
+                  console.log("load file error")
+                }
+                
+              } else {
+                console.log("file not found")
               }
-              reader.onerror = function() {
-                console.log("load file error")
-              }
-              
-            } else {
+            } catch (e) {
               console.log("file not found")
             }
-          } catch (e) {
-            console.log("file not found")
-          }
+          })
+        }
+        
+        
         
        
       
@@ -676,7 +741,7 @@ const receiveGroupMessage = async(roomId,data, userId) => {
           const uiData = {
             userId: data.userId,
             groupId: roomId,
-            content: data.content,
+            content: utilsController.decodeXOR(data.content, data.groupId + data.time),
             width: data.width,
             height: data.height,
             messageType: data.messageType,
@@ -858,6 +923,7 @@ const fetchFile = async(data) => {
   if(true){//data.content.size < 1000 * 1000 * 1000){
     console.log('准备从群', data.groupId, '下载文件', data)
     const client = new WebTorrent()
+    global.roomObjects[data.groupId].clients.push(client)
     //data.content.hash = 'https://ferrolho.github.io/magnet-player/#76ac8abef62ea2fc4c6cb0a8a1dc9a535e78ca7d'
     console.log(data.content.hash)
     var announceList = [
@@ -883,7 +949,19 @@ const fetchFile = async(data) => {
     client.add(data.content.hash.trim(), {announce: announceList},function(torrent){
       console.log('找到做种人', torrent.files[0])
       global.roomObjects[data.groupId].deliverFile[data.content.hash](torrent.files[0])
+      torrent.files[0].getBlob((err, blob)=>{
+        global.db.fileRepository.put({
+          hash: data.content.hash,
+          type: 'blob',
+          blob: blob,
+          time: data.content.time,
+          access: data.groupId,
+          name: data.content.name
+        })
+      })
+      
     })
+
     global.roomObjects[data.groupId].syncRequest({
         userId: global.user.userId,
         groupId: data.groupId,
@@ -897,7 +975,7 @@ const fetchFile = async(data) => {
   }
   else{
     console.log('文件大小超过1G，启用dht下载')
-    global.roomObjects[data.groupId].torrentClient.add(data.content.hash)
+    global.roomObjects[data.groupId].uploadClient.add(data.content.hash)
   }
 
   // let res = await new Promise(function(resolve, reject){
@@ -948,6 +1026,13 @@ const getGroupMessages = async(groupId, current, pageSize) =>{
     [ groupId, Dexie.maxKey])
   .reverse().offset(current).limit(pageSize).toArray()
   groupMessage = groupMessage.reverse();
+
+  //解密
+  groupMessage.map((message) => {
+    let data = message
+    data.content = utilsController.decodeXOR(message.content, message.groupId + message.time)
+    return data
+  })
 
   //   const userGather: {[key: string]: User} = {};
     const userGather= {};
@@ -1033,7 +1118,11 @@ const sendGroupMessage = async(data) => {
       //     }
       //   }
       // }
+      // const client = new WebTorrent()
+      // global.roomObjects[data.groupId].clients.push(client)
       const client = new WebTorrent()
+      global.roomObjects[data.groupId].uploadClients.push(client)
+      global.roomObjects[data.groupId].clients.push(client)
       var clientBlob
       //根据file对象制作种子文件，获取其哈希值
       client.seed(data.content, null, async(torrent) => {
@@ -1054,17 +1143,17 @@ const sendGroupMessage = async(data) => {
                   access: data.groupId,
                   name: data.content.name,
                 })
-                
+                //此时修改data.content为哈希值
+                data.content = {
+                  hash: torrent.infoHash,
+                  name: data.content.name,
+                  type: data.content.type,
+                  size: data.content.size
+                }
                 
               })
 
-        //此时修改data.content为哈希值
-        data.content = {
-          hash: torrent.infoHash,
-          name: data.content.name,
-          type: data.content.type,
-          size: data.content.size
-        }
+        
 
         if (!data.time)
           data.time = Date.now() //new Date.valueOf(); // 使用服务端时间
@@ -1083,62 +1172,65 @@ const sendGroupMessage = async(data) => {
         delete data._id
         //console.log(data)
         
-        if(peers.length != 0){
-          global.roomObjects[data.groupId].sendMessage(data)  //通过webRTC房间注册的发送函数发送消息
-        }
-        else{
-          //console.log('用以太坊发送消息')
-          //ethController.sendMessage(data.groupId, group.privateKey , data.groupId, data)
-        }
-          var reader = new FileReader();
-          try {
-            //var reader = new FileReader()
-            if (clientBlob) {
-              reader.readAsDataURL(clientBlob)
-              reader.onload = async function(){
-                console.log(this.result)
-                data.dataURL = this.result
-                global.db.groupMessageRepository.add(data).then(() => {
-                  console.log('保存了消息：', data)
-                  blockController.updateChain(data.groupId, data.time)
-                  console.log('本地发送消息后更新区块')
-                }); //保存到聊天记录数据库
-                
-                
-                await global.db.groupRepository.update(data.groupId, {lastMessage: data.hash})
-                    .then(() => console.log('更新当前消息哈希')) //更新自己最后一条消息的id
-                
-          
-                
-                
-          
-                //将自己发送的消息经数据接口传输到前端渲染
-                const uiData = {
-                  userId:  global.user.userId ,
-                  groupId: data.groupId,
-                  content: data.content,
-                  dataURL: data.dataURL,
-                  width: data.width,
-                  height: data.height,
-                  messageType: data.messageType,
-                  name: data.name,
-                  hash: data.hash
-                }
-                groupApi.receiveGroupMessage(uiData) 
-                
-                //this.server.to(data.groupId).emit('groupMessage', {code: RCode.OK, msg:'', data: data});
-                return
+        
+
+        var reader = new FileReader();
+        try {
+          //var reader = new FileReader()
+          if (clientBlob) {
+            reader.readAsDataURL(clientBlob)
+            reader.onload = async function(){
+              console.log(this.result)
+              data.dataURL = this.result
+              //data.content.dataURL = this.result
+              if(peers.length != 0){
+                global.roomObjects[data.groupId].sendMessage(data)  //通过webRTC房间注册的发送函数发送消息
               }
-              reader.onerror = function() {
-                console.log("load file error")
+              else{
+                //console.log('用以太坊发送消息')
+                //ethController.sendMessage(data.groupId, group.privateKey , data.groupId, data)
               }
+              global.db.groupMessageRepository.add(data).then(() => {
+                console.log('保存了消息：', data)
+                blockController.updateChain(data.groupId, data.time)
+                console.log('本地发送消息后更新区块')
+              }); //保存到聊天记录数据库
               
-            } else {
-              console.log("file not found")
+              
+              await global.db.groupRepository.update(data.groupId, {lastMessage: data.hash})
+                  .then(() => console.log('更新当前消息哈希')) //更新自己最后一条消息的id
+              
+        
+              
+              
+        
+              //将自己发送的消息经数据接口传输到前端渲染
+              const uiData = {
+                userId:  global.user.userId ,
+                groupId: data.groupId,
+                content: data.content,
+                dataURL: data.dataURL,
+                width: data.width,
+                height: data.height,
+                messageType: data.messageType,
+                name: data.name,
+                hash: data.hash
+              }
+              groupApi.receiveGroupMessage(uiData) 
+              
+              //this.server.to(data.groupId).emit('groupMessage', {code: RCode.OK, msg:'', data: data});
+              return
             }
-          } catch (e) {
+            reader.onerror = function() {
+              console.log("load file error")
+            }
+            
+          } else {
             console.log("file not found")
           }
+        } catch (e) {
+          console.log("file not found")
+        }
         
 
         
@@ -1161,10 +1253,11 @@ const sendGroupMessage = async(data) => {
       //     }
       //   }
       // }
-      
+      const client = new WebTorrent()
+      global.roomObjects[data.groupId].clients.push(client)
+      global.roomObjects[data.groupId].uploadClients.push(client)
       var clientBlob
       //根据file对象制作种子文件，获取其哈希值
-      const client = new WebTorrent()
       client.seed(data.content, null, async(torrent) => {
         console.log(torrent.infoHash)
 
@@ -1354,6 +1447,7 @@ const sendGroupMessage = async(data) => {
     data.signature = signatureObject.signature
     //console.log(data)
     if(data.messageType === 'text' ){//||data.messageType === 'image' ){
+      data.content = utilsController.XORencryption(data.content, data.groupId + data.time) //用群id加当前时间作为密钥，进行加密
       global.db.groupMessageRepository.add(data).then(() => {
         console.log('保存了消息：', data)
         blockController.updateChain(data.groupId, data.time)
@@ -1383,7 +1477,7 @@ const sendGroupMessage = async(data) => {
       const uiData = {
         userId:  global.user.userId ,
         groupId: data.groupId,
-        content: data.content,
+        content: utilsController.decodeXOR(data.content, data.groupId + data.time),
         width: data.width,
         height: data.height,
         messageType: data.messageType,
@@ -1559,6 +1653,7 @@ const roomInit = async(roomId) => {
       idsToNames[selfId] = global.user.username 
       idsToUserIds[selfId] =  global.user.userId
       const client = new WebTorrent()
+      
       global.roomObjects[roomId] = {room:room,
                   selfId: selfId,
                   sendMessage: sendMessage,
@@ -1573,9 +1668,10 @@ const roomInit = async(roomId) => {
                   userIdsToIds : {},
                   offline: [],
                   groupId: roomId,
-                  torrentClient: client,
+                  uploadClient: client,
                   deliverFile: {},
-                  clients:[]
+                  clients:[client],
+                  uploadClients:[client]
                 }
 
       // register name service
@@ -1668,7 +1764,7 @@ const getOldMessages= async(roomId, id) =>{
             {
               userId: global.user.userId,
               groupId: room.groupId,
-              content: {key: 'time', time: room.offline},//从收到最后一条消息的时间开始查询
+              content: {key: 'time', time: [room.offline[0] , Date.now() + 2000]},//从收到最后一条消息的时间开始查询
               messageType: 'fetchOldMessage',
               to: id
             })

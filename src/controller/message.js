@@ -99,9 +99,92 @@ const getHistoryMsg = async (req, res) => {
   })
 }
 
+const fetchProgress = (data) => {
+  let torrents = []
+  if(data.groupId){
+    for(const client of global.roomObjects[data.groupId].clients){
+      for(const torrent of client.torrents){
+        if(torrent.infoHash == data.content.hash){
+          console.log('找到种子！')
+          torrents.push(torrent)
+          // return {
+          //   numPeers: torrent.numPeers,
+          //   progress: torrent.progress,
+          //   downloaded: torrent.downloaded,
+          //   length: torrent.length,
+          //   done: torrent.done,
+          //   timeRemaining: torrent.timeRemaining, 
+          //   downloadSpeed: torrent.downloadSpeed,
+          //   uploadSpeed: torrent.uploadSpeed,
+          // }
+        }
+      }
+      
+    }
+
+    if(torrents.length>0){
+      let bestTorrent = torrents[0]
+      let minTimeRemaining = torrents[0].timeRemaining
+      for( const torrent of torrents){
+        if (torrent.timeRemaining < minTimeRemaining){
+          bestTorrent = torrent
+        }
+      }
+      const torrent = bestTorrent
+      console.log('找到最快下载完的种子')
+      return {
+        numPeers: torrent.numPeers,
+        progress: torrent.progress,
+        downloaded: torrent.downloaded,
+        length: torrent.length,
+        done: torrent.done,
+        timeRemaining: torrent.timeRemaining, 
+        downloadSpeed: torrent.downloadSpeed,
+        uploadSpeed: torrent.uploadSpeed,
+      }
+    }
+  }
+}
+
+const stopDownload = (hash) => {
+  if(data.groupId){
+    for(const client of global.roomObjects[data.groupId].clients){
+      for(const torrent of client.torrents){
+        if(torrent.infoHash == data.content.hash){
+          console.log('找到准备停止下载的种子！')
+          client.remove(torrent)
+          
+        }
+      }
+      
+    }
+  }
+}
+
+var fileFetching = {}//{status: 'processing', promise:{resolve(file)}, }
+
 const fetchFile = async(data) => {
   let res
   console.log(data)
+  //先找一下有没有已经完成下载的种子
+  var torrents = []
+  if(data.groupId){
+    for(const client of global.roomObjects[data.groupId].clients){
+      for(const torrent of client.torrents){
+        if(torrent.infoHash == data.content.hash){
+          console.log('fetchFile找到种子！')
+          if( torrent.progress == 1 || torrent.done || torrent.length == torrent.downloaded){
+            console.log('fetchFile找到已经有完整文件的种子！', torrent)
+            return torrent.files[0]
+          }
+          torrents.push(torrent)
+        }
+      }
+      
+    }
+  }
+
+  //如果没有，查一下数据库看看有没有
   res = await global.db.fileRepository.where({hash: data.content.hash}).first()
   if(res){
     console.log('从本地数据库中找到文件', res)
@@ -109,15 +192,18 @@ const fetchFile = async(data) => {
       console.log(res.blob)
       const file = new File([ res.blob ], data.content.name, { type: data.content.type })
       if(data.groupId){
-        for(const torrent of global.roomObjects[data.groupId].torrentClient.torrents){
+        for(const torrent of global.roomObjects[data.groupId].uploadClient.torrents){
           
             if (torrent.infoHash == data.content.hash){
-              global.roomObjects[data.groupId].torrentClient.remove(torrent.infoHash)
+              return new Promise((resolve, reject) => {
+                resolve(torrent.files[0])
+              })
+              global.roomObjects[data.groupId].uploadClient.remove(torrent.infoHash)
             }
           
         }
         return new Promise((resolve, reject) => {
-          global.roomObjects[data.groupId].torrentClient.seed(file, null, async(torrent) => {
+          global.roomObjects[data.groupId].uploadClient.seed(file, null, async(torrent) => {
             console.log(torrent.files[0])
             resolve(torrent.files[0])
           })
@@ -128,11 +214,46 @@ const fetchFile = async(data) => {
     }
   }
   else{
+
+    //如果还没有，从正在下载的种子里获取文件
+    if(torrents.length>0){
+      let bestTorrent = torrents[0]
+      let minTimeRemaining = torrents[0].timeRemaining
+      for( const torrent of torrents){
+        if (torrent.timeRemaining < minTimeRemaining){
+          bestTorrent = torrent
+        }
+      }
+      if (bestTorrent.downloaded > 0)
+      {
+        console.log('找到最快下载完的种子', bestTorrent, bestTorrent.files[0])
+        return bestTorrent.files[0]
+      }
+    }
+    
+
+    //如果还没有，看看fileFetching对象中保存的promise
+    if( fileFetching[data.content.hash] != null ){
+      if( fileFetching[data.content.hash].status == 'processing')
+      console.log('该种子已经开始下载了')
+      //这时候下载请求已经提交到群房间以及DHT网络上了，但是还没有获取到种子元信息。
+      //获取到之后，应该把file作为promise的resolve值赋值给fileFetching[data.content.hash]
+      console.log(fileFetching[data.content.hash].filePromise)
+      return await fileFetching[data.content.hash].filePromise
+    }
+    //fileFetching[data.content.hash].status = 'processing'
+   
+    //如果还没有，从远程节点或群成员那里下载
     if(data.groupId){
-      res = await groupController.fetchFile(data)
-      if(res){
-        console.log('成功从群', data.groupId, '下载到文件', res)
-        res.getBlob((err, blob)=>{
+      let filePromise = groupController.fetchFile(data)
+      fileFetching[data.content.hash] = {
+        status: 'processing',
+        filePromise: filePromise
+      }
+      let file = await filePromise
+      if(file){
+        console.log('成功从群', data.groupId, '下载到文件', file)
+        file.getBlob((err, blob)=>{
           global.db.fileRepository.put({
             hash: data.content.hash,
             type: 'blob',
@@ -140,16 +261,16 @@ const fetchFile = async(data) => {
             time: data.time,
             access: data.groupId,
             name: data.content.name,
-          })
+          }).then(()=>{console.log('成功从群', data.groupId, '下载到文件', file, '并保存')})
         })
         
 
-        return res
+        return file
         // const blob = new Blob([res],  { type: data.content.type })
         // if(true){//res.type == 'blob'){
         //   let file = new File([ blob ], data.content.name, { type: data.content.type })
         //   return new Promise(function(resolve, reject){
-        //     global.roomObjects[data.groupId].torrentClient.seed(file, null, async(torrent) => {
+        //     global.roomObjects[data.groupId].uploadClient.seed(file, null, async(torrent) => {
         //       if( torrent.infoHash == data.content.hash){
         //         console.log('哈希验证成功')
         //         global.db.fileRepository.put({
@@ -183,5 +304,6 @@ export default {
   getLastNews,
   userIsReadMsg,
   getHistoryMsg,
-  fetchFile
+  fetchFile,
+  fetchProgress
 }

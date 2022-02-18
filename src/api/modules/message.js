@@ -16,5 +16,9 @@ export default {
 
     async fetchFile(data){
       return await messageController.fetchFile(data)
+    },
+
+    fetchProgress(data){
+      return messageController.fetchProgress(data)
     }
   }

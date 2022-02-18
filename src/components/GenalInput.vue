@@ -305,9 +305,22 @@ export default class GenalInput extends Vue {
     if (!isJpgOrPng) {
       return this.$message.error('请选择jpeg/jpg/png/gif格式的图片!');
     }
-    const isLt1M = imageFile.size / 1024 / 1024 < 10//0.5;
+    const isLt1M = imageFile.size / 1024 / 1024 < 3//0.5;
     if (!isLt1M) {
-      this.handleFileUpload(imageFile)
+      let image = new Image();
+      let url = window.URL || window.webkitURL;
+      image.src = url.createObjectURL(imageFile);
+      image.onload = () => {
+        let imageSize: ImageSize = this.getImageSize({ width: image.width, height: image.height });
+        this.sendMessage({
+          type: this.activeRoom.groupId ? 'group' : 'friend',
+          message: imageFile,
+          width: imageSize.width,
+          height: imageSize.height,
+          messageType: 'file',
+        });
+      };
+      //this.handleFileUpload(imageFile)
       return //this.$message.error('图片必须小于500K!');
     }
     let image = new Image();
