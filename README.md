@@ -118,3 +118,21 @@ global.roomObjects[data.groupId].sendMessage(data)
 ### 接收群聊消息
 
 
+
+
+## 安全验证系统
+
+### 异或加密
+
+传统异或加密，需要密钥比原文长，且密钥不能重复使用。而ichat使用的异或加密函数XORencryption，不要求密钥的长度。这是因为我们给密钥逐次加值再哈希，生成任意长的密钥，这样香农对原始异或加密的信息熵的论文仍能成立。
+
+哈希函数unicodeHash：以太坊web3.eth.accounts.hashMessage，再将生成的十六进制数转换成Unicode。
+输入：原文val, 密钥key, 是否将密文转为Base64储存（默认是）, 哈希函数hash（默认unicodeHash）
+1.判断密钥哈希值长度：hash(key).length
+2.将原文分割为多段，除最后一段外，每段与hash(key).length等长
+3.对于第i段原文，生成变换密钥hash(key+'i')，此时变换密钥与该段原文等长。将这两段数据的对应Unicode字符转换为整数，并求异或。
+4.将结果转换为对应的Unicode字符。
+5.将Unicode字符串转换为Base64。
+
+
+<a href="https://iconscout.com/icons/file" target="_blank">File Icon</a> on <a href="https://iconscout.com">Iconscout</a>

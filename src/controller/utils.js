@@ -203,8 +203,10 @@ const unicodeHash = (entropy) => {
 
 //输入两个16进制表示的字符串，输出二进制的异或距离（以字符串表示）
 const XOR = (a, b) => {
+    console.log(parseInt(a) ^ parseInt(b))
     a = parseInt(a).toString(2).toString()
     b = parseInt(b).toString(2).toString()
+    
     let result = ''
     if(a.length < b.length){
         for( let i = 0; i < b.length - a.length; i ++){
@@ -224,6 +226,7 @@ const XOR = (a, b) => {
             result += '1'
         }
     }
+    console.log(result)
     return result
 }
 

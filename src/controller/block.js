@@ -231,6 +231,10 @@ const generateGenesisBlock = async(adminAccount, groupAccount, groupInfo, creato
     //构建状态，其中包含以群id为索引的群信息，以及以创建者用户id为索引的创建者信息，并标明身份
     let states = {}
     states[groupAccount.address] = groupInfo
+
+    //如果是不需要验证的群：
+    states[groupAccount.address].privateKey = groupAccount.privateKey
+
     creator.status = 'creator'
     states[creator.userId] = creator
     let stateLeaves = Object.values(states)
@@ -289,8 +293,21 @@ const verifyGenesis = (genesis) => {
 
     //验证哈希值
 
-    global.db.groupBlockRepository.put(genesis ).then(() => {console.log('成功保存创世块', genesis)})
     console.log('试图保存创世块', genesis)
+    global.db.groupBlockRepository.put(genesis ).then(() => {console.log('成功保存创世块', genesis)})
+    
+    //若有查看密钥，则保存
+    console.log('查看密钥：', genesis.groupId, genesis.states[genesis.groupId], genesis.states[genesis.groupId].privateKey)
+    if( genesis.states[genesis.groupId].privateKey){
+        global.db.groupRepository.where({groupId: genesis.groupId}).first().then((group)=> {
+            group.privateKey = genesis.states[genesis.groupId].privateKey
+
+            global.db.groupRepository.put(group).then(()=>{console.log('保存查看密钥成功！')})
+        })
+        
+    }
+    
+
     return true
 
 

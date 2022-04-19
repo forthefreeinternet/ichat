@@ -90,11 +90,14 @@ const friendMap=  await db.friendRepository.where({userId: user.userId}).toArray
       .toArray();
       console.log(groupMessage)
       groupMessage = groupMessage.reverse();
-
+      const group = await global.db.groupRepository.where({groupId: item.groupId}).first()
       //解密
       groupMessage.map((message) => {
         let data = message
-        data.content = utilsController.decodeXOR(message.content, message.groupId + message.time)
+        console.log('该群的查看消息密钥：', group.privateKey)
+        if(group.privateKey){
+          data.content  = utilsController.decodeXOR(data.content, group.privateKey + data.time)
+        }
         return data
       })
 
@@ -265,7 +268,8 @@ const dbInit = async(userId) => {
     userRepository: "&userId, username",
     friendMessageRepository: "++_id, friendId, userId, content, time, [userId+friendId+time]",
     groupBlockRepository: " [groupId+number], &hash, groupId, messageRoot, time, preHash,  number, [groupId+time]",//同一群、同一高度只能有一块
-    fileRepository: "hash, time, access  "
+    fileRepository: "hash, time, access  ",
+    roomRepository: "id, privateKey, publicKey, ring, nodeId"
   });
   var web3 = new Web3(new Web3.providers.WebsocketProvider("wss://rinkeby.infura.io/ws/v3/a898a2d231e647c7928dc457c6d441c8"));
   global.web3 = web3

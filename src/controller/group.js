@@ -344,6 +344,57 @@ const joinGroup = async(data) => {
   }
 }
 
+//处理文件
+const processFile = (groupId, data, peerId, meta) => {
+  if(meta.content != 'failed'){  
+    console.log('成功从群', groupId, '下载到文件', meta.content.name)
+    
+    if(global.roomObjects[groupId].deliverFile[meta.content.hash]){
+      const blob = new Blob([data],  { type: meta.content.type })
+      const file = new File([ blob ], meta.content.name, { type: meta.content.type })
+      const client = new WebTorrent()
+      global.roomObjects[groupId].uploadClients.push(client)
+      global.roomObjects[groupId].clients.push(client)
+      // //如果已经在做种了，会导致seed方法的回调函数不运行，因此要先看一下名字有没有重合
+      // for(const torrent of global.roomObjects[groupId].torrentClient.torrents){
+      //   for (const file of torrent.files){
+      //     if (file.name == data.content.name){
+      //       // let oldName = data.content.name.split('.')
+      //       // oldName[oldName.length-2] = oldName[oldName.length-2] + '(1)'
+      //       // data.content.name = oldName.join('.')
+      //       global.roomObjects[data.groupId].torrentClient.remove(torrent.infoHash)
+      //     }
+      //   }
+      // }
+      client.seed(file, null, async(torrent) => {
+        if( torrent.infoHash == meta.content.hash){
+          console.log('哈希验证成功')
+          global.db.fileRepository.put({
+            hash: meta.content.hash,
+            type: 'blob',
+            blob: blob,
+            time: meta.content.time,
+            access: groupId,
+            name: meta.content.name
+          })
+          console.log(blob)
+          global.roomObjects[groupId].deliverFile[meta.content.hash](torrent.files[0])//blob)                 
+        }
+        else{
+          console.log('哈希验证失败')
+        }
+      })
+      
+      
+    }
+    else{
+      console.log('文件下载任务不存在')
+    }
+    
+  }else{
+    //global.roomObjects[groupId].deliverFile[data.content.hash](null)
+  }
+}
 
 //接收同步请求
 const deliverGroupSyncRequest = async(groupId, data, peerId, meta) => {
@@ -404,7 +455,7 @@ const deliverGroupSyncRequest = async(groupId, data, peerId, meta) => {
         if (res){
           if(res.type == 'blob'){
             console.log(res.blob)
-            global.roomObjects[groupId].syncRequest(res.blob, peerId, {
+            global.roomObjects[groupId].sendFile(res.blob, peerId, {
               messageType: 'file',
               content: {
                     hash: res.hash,
@@ -415,6 +466,17 @@ const deliverGroupSyncRequest = async(groupId, data, peerId, meta) => {
                     name: res.name
               }
             })//把meta数据写在后面
+            // global.roomObjects[groupId].syncRequest(res.blob, peerId, {
+            //   messageType: 'file',
+            //   content: {
+            //         hash: res.hash,
+            //         type: res.blob.type,
+            //         //blob: res.blob,
+            //         time: res.time,
+            //         access: res.access,
+            //         name: res.name
+            //   }
+            // })//把meta数据写在后面
           } 
         }else{
           global.roomObjects[groupId].syncRequest({
@@ -541,6 +603,7 @@ const receiveGroupMessage = async(roomId,data, userId) => {
     if( data.time > Date.now()) {console.log('消息时间造假');return}
     //验证消息完毕
     console.log('消息验证通过')
+    const group = await global.db.groupRepository.where({groupId: roomId}).first()
 
     if(data.messageType == 'image'){
       
@@ -738,10 +801,19 @@ const receiveGroupMessage = async(roomId,data, userId) => {
           console.log('保存了消息：', data)
           blockController.updateChain(roomId, data.time)
           console.log('前端渲染')
+          let plainText = ''
+          console.log('该群的查看消息密钥：', group.privateKey)
+          if(group.privateKey){
+            plainText = utilsController.decodeXOR(data.content, group.privateKey + data.time)
+          }
+          else{
+            plainText = data.content
+          }
+          
           const uiData = {
             userId: data.userId,
             groupId: roomId,
-            content: utilsController.decodeXOR(data.content, data.groupId + data.time),
+            content: plainText,
             width: data.width,
             height: data.height,
             messageType: data.messageType,
@@ -949,16 +1021,17 @@ const fetchFile = async(data) => {
     client.add(data.content.hash.trim(), {announce: announceList},function(torrent){
       console.log('找到做种人', torrent.files[0])
       global.roomObjects[data.groupId].deliverFile[data.content.hash](torrent.files[0])
-      torrent.files[0].getBlob((err, blob)=>{
-        global.db.fileRepository.put({
-          hash: data.content.hash,
-          type: 'blob',
-          blob: blob,
-          time: data.content.time,
-          access: data.groupId,
-          name: data.content.name
-        })
-      })
+      // 在消息模块中保存
+      // torrent.files[0].getBlob((err, blob)=>{
+      //   global.db.fileRepository.put({
+      //     hash: data.content.hash,
+      //     type: 'blob',
+      //     blob: blob,
+      //     time: data.content.time,
+      //     access: data.groupId,
+      //     name: data.content.name
+      //   })
+      // })
       
     })
 
@@ -1026,11 +1099,16 @@ const getGroupMessages = async(groupId, current, pageSize) =>{
     [ groupId, Dexie.maxKey])
   .reverse().offset(current).limit(pageSize).toArray()
   groupMessage = groupMessage.reverse();
-
+  const group = await global.db.groupRepository.where({groupId: groupId}).first()
   //解密
   groupMessage.map((message) => {
     let data = message
-    data.content = utilsController.decodeXOR(message.content, message.groupId + message.time)
+    console.log('该群的查看消息密钥：', group.privateKey)
+    if(group.privateKey){
+      data.content  = utilsController.decodeXOR(data.content, group.privateKey + data.time)
+    }
+    
+    
     return data
   })
 
@@ -1439,6 +1517,10 @@ const sendGroupMessage = async(data) => {
     //console.log(global.user)
     //console.log(global.roomObjects)
     const group = await global.db.groupRepository.where({groupId: data.groupId}).first()
+    const plainText = data.content
+    if(group.privateKey){
+      data.content = utilsController.XORencryption(data.content, group.privateKey + data.time) //用群私钥加当前时间作为密钥，进行加密
+    }
     
     data.preHash = group.lastMessage
     data.hash = global.web3.eth.accounts.hashMessage(group.lastMessage + data.groupId + data.content + data.time)
@@ -1447,7 +1529,7 @@ const sendGroupMessage = async(data) => {
     data.signature = signatureObject.signature
     //console.log(data)
     if(data.messageType === 'text' ){//||data.messageType === 'image' ){
-      data.content = utilsController.XORencryption(data.content, data.groupId + data.time) //用群id加当前时间作为密钥，进行加密
+      
       global.db.groupMessageRepository.add(data).then(() => {
         console.log('保存了消息：', data)
         blockController.updateChain(data.groupId, data.time)
@@ -1458,7 +1540,7 @@ const sendGroupMessage = async(data) => {
       await global.db.groupRepository.update(data.groupId, {lastMessage: data.hash})
           .then(() => console.log('更新当前消息哈希')) //更新自己最后一条消息的id
       
-
+      console.log(data.groupId, global.roomObjects)
       const peers = global.roomObjects[data.groupId].room.getPeers()
       console.log('群在线用户：', peers )
       delete data._id
@@ -1477,7 +1559,7 @@ const sendGroupMessage = async(data) => {
       const uiData = {
         userId:  global.user.userId ,
         groupId: data.groupId,
-        content: utilsController.decodeXOR(data.content, data.groupId + data.time),
+        content: plainText,
         width: data.width,
         height: data.height,
         messageType: data.messageType,
@@ -1642,10 +1724,15 @@ const roomInit = async(roomId) => {
       //   console.log('webRtc getMessage ' , message , ' from ' + id + '(' + global.roomObjects[roomId].idsToUserIds[id] + ') in ' + roomId)
       //   receiveGroupMessage(roomId, message, global.roomObjects[roomId].idsToUserIds[id] ) })  
 
-      const [sendFile, getFile] = room.makeAction('file')
-      getFile(function(message, id){
+      const [sendFile, getFile, onFileProgress] = room.makeAction('file')
+      getFile(function(message, id, meta){
         console.log('webRtc getMessage ' , message , ' from ' + id + '(' + global.roomObjects[roomId].idsToUserIds[id] + ') in ' + roomId)
-        receiveGroupMessage(roomId, message, global.roomObjects[roomId].idsToUserIds[id] ) })  
+        processFile(roomId, message, id, meta)
+      })  
+      // onFileProgress(function(percent, peerId, metadata){
+
+      // })
+
 
       const idsToNames = {}
       const idsToUserIds = {}
