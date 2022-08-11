@@ -230,6 +230,7 @@ const XOR = (a, b) => {
     return result
 }
 
+//比较字符串格式的二进制数大小。如果a<=b，返回true。
 const leq = (a, b) => {
     if(a.length < b.length){
         for( let i = 0; i < b.length - a.length; i ++){

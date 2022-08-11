@@ -6,6 +6,11 @@ webRTC是由各大主流浏览器支持的网络点对点通信协议。传统�
 
 依靠这两种工具，我们可以不依靠服务器实现通信。现在有很多点对点聊天项目，但它们都无法做到单离线：如果信息接收方离线，发送方就无法发送信息了。而ichat通过“群友、好友帮忙传递消息”及“在以太坊区块链上发布消息”这两种手段，实现单离线通信。现有的点对点聊天网页都没有“微信好友管理功能”和“聊天记录保存功能”，ichat也一并将其实现。
 
+一、相比微信的优势：
+1、可传送大达6GB的文件（微信限制为100M），且文件不会过期（微信为3-7天）。这是因为使用了点对点通信及好友互助通信。
+2、群发文件及公开文件（如影视、书籍等）的上传和下载速度比微信快。这是因为使用了BT下载。
+3、没有广告、不会被监控、不会吞图、吞信息、吞朋友圈。
+
 ### 运行项目
 
 ```js 
@@ -101,7 +106,9 @@ groupApi.sendGroupMessage({
 2. 数据接口调用controller/group.js中sendGroupMessage()函数，web3的哈希函数对数据计算哈希值：
 
 ```js
-data.hash = global.web3.eth.accounts.hashMessage(group.lastMessage + data.groupId + data.content + data.time) //group.lastMessage是这个群聊中发送消息的用户上一条消息的哈希值
+data.hash = global.web3.eth.accounts.hashMessage(group.lastMessage + data.groupId + data.content + data.time) 
+
+//group.lastMessage是这个群聊中发送消息的用户上一条消息的哈希值
 ```
 
 用私钥签名该哈希值：
@@ -127,7 +134,9 @@ global.roomObjects[data.groupId].sendMessage(data)
 传统异或加密，需要密钥比原文长，且密钥不能重复使用。而ichat使用的异或加密函数XORencryption，不要求密钥的长度。这是因为我们给密钥逐次加值再哈希，生成任意长的密钥，这样香农对原始异或加密的信息熵的论文仍能成立。
 
 哈希函数unicodeHash：以太坊web3.eth.accounts.hashMessage，再将生成的十六进制数转换成Unicode。
+
 输入：原文val, 密钥key, 是否将密文转为Base64储存（默认是）, 哈希函数hash（默认unicodeHash）
+
 1. 判断密钥哈希值长度：hash(key).length
 2. 将原文分割为多段，除最后一段外，每段与hash(key).length等长
 3. 对于第i段原文，生成变换密钥hash(key+'i')，此时变换密钥与该段原文等长。将这两段数据的对应Unicode字符转换为整数，并求异或。
