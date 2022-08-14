@@ -101,6 +101,7 @@ export default class GenalRoom extends Vue {
 
   changeActiveRoom(activeRoom: User & Group) {
     this.$emit('setActiveRoom', activeRoom);
+    console.log('814',JSON.stringify(activeRoom))
     this.lose_unread_gather(activeRoom.groupId || activeRoom.userId);
   }
 

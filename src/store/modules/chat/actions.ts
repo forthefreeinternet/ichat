@@ -37,6 +37,7 @@ const actions: ActionTree<ChatState, RootState> = {
     }
     Vue.prototype.$message.success(res.msg);
     commit(SET_GROUP_GATHER, res.data);
+    console.log('814',state.groupGather)
   },
 
    joinGroup({ commit, state, dispatch, rootState }, res : ServerRes){ 
@@ -62,6 +63,7 @@ const actions: ActionTree<ChatState, RootState> = {
         chatApi.getChatData(user)//socket.emit('chatData', user); //************** */
       }
       Vue.prototype.$message.info(`成功加入群${group.groupName}`);
+      console.log('814',state.groupGather)
       commit(SET_ACTIVE_ROOM, state.groupGather[group.groupId]);
     }
   },

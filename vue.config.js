@@ -8,13 +8,13 @@ const cdn = {
   ],
   js: [
     // vue
-    'https://cdn.bootcdn.net/ajax/libs/vue/2.6.10/vue.min.js',
+    'https://cdn.bootcdn.net/ajax/libs/vue/2.6.10/vue.min.js',//"https://unpkg.com/vue@3"
     // vue-router
-    'https://cdn.bootcdn.net/ajax/libs/vue-router/3.1.3/vue-router.min.js',
+    'https://unpkg.com/vue-router@3.1.3',//'https://cdn.bootcdn.net/ajax/libs/vue-router/3.1.3/vue-router.min.js',
     // vuex
-    'https://cdn.bootcdn.net/ajax/libs/vuex/3.1.2/vuex.min.js',
+    'https://unpkg.com/vuex@3.1.2',//'https://cdn.bootcdn.net/ajax/libs/vuex/3.1.2/vuex.min.js',
     // axios
-    'https://cdn.bootcdn.net/ajax/libs/axios/0.18.0/axios.min.js',
+    "https://unpkg.com/axios/dist/axios.min.js",//'https://cdn.bootcdn.net/ajax/libs/axios/0.18.0/axios.min.js',
     // moment
     'https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.27.0/moment.min.js',
   ],
@@ -85,8 +85,8 @@ module.exports = {
   },
   // webSocket本身不存在跨域问题，所以我们可以利用webSocket来进行非同源之间的通信。
   publicPath:  process.env.NODE_ENV === 'production'
-  ? '/ichat0/'
-  : '/',
+  ? './'//'/ichat0/'
+  : './',//'/',
   //'/',
   devServer: {
     port: 1997,

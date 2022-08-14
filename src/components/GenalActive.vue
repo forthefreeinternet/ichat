@@ -20,8 +20,8 @@
               {{ data.username }}
             </div>
           </div>
-          <div class="primary">{{activeRoom.groupName + ':' + activeRoom.groupId}}</div>
-          <a-button type="primary" v-clipboard:copy="activeRoom.groupName + ':' + activeRoom.groupId" v-clipboard:success="onCopy">复制群链接</a-button>
+          <div class="primary">{{activeRoom.groupName + '&' + activeRoom.groupId + '&' + activeRoom.privateKey}}</div>
+          <a-button type="primary" v-clipboard:copy="activeRoom.groupName + '&' + activeRoom.groupId + '&' + activeRoom.privateKey" v-clipboard:success="onCopy">复制群链接</a-button>
           <a-button type="danger" class="active-content-out" @click="exitGroup">退出</a-button>
         </div>
       </a-drawer>
@@ -94,6 +94,7 @@ export default class GenalActive extends Vue {
   }
 
   onCopy() {
+    console.log('814',JSON.stringify(this.activeRoom.privateKey))
     this.$message.success(`复制成功`)
   }
 }

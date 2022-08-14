@@ -13,6 +13,7 @@ interface Group {
   notice: string;
   messages?: GroupMessage[];
   createTime: number;
+  privateKey: string;
 }
 
 // 群与用户关联表

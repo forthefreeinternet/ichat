@@ -183,9 +183,9 @@ export default class GenalMessage extends Vue {
   lastTime: number = 0;
   isPreviewed: boolean = false //预览窗口是否打开
   fileMessage: any; //包含当前预览的文件的消息
-  files: Object = {}; //已经本地缓存的文件列表，键值为包含该文件的消息哈希 TO-DO: 为节省内存，键值应该为该文件的种子哈希
-  messageHash: Object = {}; //打开的文件的消息哈希
-  hasPreviewed: Object = {}; //某文件是否已经被尝试预览过
+  files: {[key: string]: any;}={}; //已经本地缓存的文件列表，键值为包含该文件的消息哈希 TO-DO: 为节省内存，键值应该为该文件的种子哈希
+  messageHash: {[key: string]: string;}={}; //打开的文件的消息哈希
+  hasPreviewed:{[key: string]: boolean;}={}; //某文件是否已经被尝试预览过
   torrentProgress: number = 0;
   streamedFileName: string = '';
   downloaded: boolean = false;
@@ -197,7 +197,7 @@ export default class GenalMessage extends Vue {
   downloadStatistic: any;
   remaining: string = '';
   isImagePreviewed: boolean = false;
-  imagePreviewed: Object = {}
+  imagePreviewed: {[key: string]: any;};
 
 
   mounted() {
@@ -488,6 +488,7 @@ export default class GenalMessage extends Vue {
     // link.download = message.content.name
     // link.click()
     // URL.revokeObjectURL(url)
+    console.log('813',String(this.messageHash))
     this.messageHash[message.hash] = message.hash
     
     
@@ -501,7 +502,9 @@ export default class GenalMessage extends Vue {
     this.streamedFileName = file.name
     console.log('ceshi', message.hash)
     //console.log(this.isViewed[message.hash])
+    console.log('813',this.files)
     this.files[message.hash] = file
+    
     
     
     if(this.hasPreviewed[message.hash]){

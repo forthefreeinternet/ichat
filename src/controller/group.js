@@ -298,9 +298,17 @@ const joinGroup = async(data) => {
   //const isUser = await this.userRepository.findOne({userId: data.userId});
   if(true) {
     console.log(data)
-    data.groupName = data.groupId.split(':')[0]
-    data.groupId =  data.groupId.split(':')[1]
-    const group = { groupId:data.groupId , groupName: data.groupName} //await this.groupRepository.findOne({ groupId: data.groupId }); 这里应该获取群详细信息
+    //data.groupId 的结构是{groupname}&{groupId}${privateKey}
+    data.groupName = ''
+    let groupData = data.groupId.split('&')
+    for (let i = 0 ; i< groupData.length - 2; i ++){ 
+      data.groupName += groupData[i]
+    }
+    
+    data.privateKey = groupData[groupData.length-1]
+    data.groupId =  groupData[groupData.length-2]
+    
+    const group = { groupId:data.groupId , groupName: data.groupName, privateKey: data.privateKey} //await this.groupRepository.findOne({ groupId: data.groupId }); 这里应该获取群详细信息
     console.log(group)
     let userGroup = await global.db.groupUserRepository.where({ groupId: group.groupId, userId: data.userId }).first();//***** */
     
@@ -314,7 +322,7 @@ const joinGroup = async(data) => {
         console.log({groupId:data.groupId , userId: data.userId})
         const test = await global.db.groupUserRepository.toArray()
         console.log(test)
-        global.db.groupRepository.add({groupId:data.groupId, groupName: data.groupName, createTime: Date.now(), autoDownloadSize: 10* 1000*1000});
+        global.db.groupRepository.add({groupId:data.groupId, groupName: data.groupName, privateKey: data.privateKey, createTime: Date.now(), autoDownloadSize: 10* 1000*1000});
         userGroup = await global.db.groupUserRepository.add({groupId:data.groupId , userId: data.userId});
         console.log('数据库保存群用户信息：', userGroup)
       }
@@ -600,7 +608,9 @@ const receiveGroupMessage = async(roomId,data, userId) => {
     if( data.hash != global.web3.eth.accounts.hashMessage(data.preHash + data.groupId + data.content + data.time)){ console.log('哈希值错误'); return}
     console.log('哈希值正确')
     //验证时间，消息发送时间不能超过当前时间
-    if( data.time > Date.now()) {console.log('消息时间造假');return}
+    if( data.time > Date.now() + 500) {  //ios时间比windows快109ms
+      console.log('消息时间:', data.time, '当前时间：', Date.now())
+      console.log('消息时间造假');return}
     //验证消息完毕
     console.log('消息验证通过')
     const group = await global.db.groupRepository.where({groupId: roomId}).first()
